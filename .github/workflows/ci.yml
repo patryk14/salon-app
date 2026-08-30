@@ -1,0 +1,32 @@
+# CI for salon-app.
+# Stage 1, step 1: prove that GitHub → AWS identity works (OIDC, no stored keys).
+# Build/test/push to ECR are added once this passes.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+
+# Least privilege for the GITHUB_TOKEN of this run.
+# id-token: write is what lets the job request an OIDC token from GitHub.
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: eu-central-1
+  AWS_ROLE_ARN: arn:aws:iam::381492053759:role/github-actions-salon-app
+
+jobs:
+  whoami:
+    runs-on: ubuntu-24.04-arm   # arm64 runner: same architecture as the Graviton targets
+    steps:
+      - name: Assume AWS role via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Who am I in AWS?
+        run: aws sts get-caller-identity
