@@ -1,7 +1,8 @@
 # CI for salon-app.
 #
 #   pull_request → test only (no AWS: the CI role trusts refs/heads/main exclusively)
-#   push to main → test → build the api image (arm64) → push to ECR
+#   push to main → test → ┬ build the api image (arm64) → push to ECR
+#                         └ build the frontend → sync to S3 → invalidate CloudFront
 #
 # Image tags: <YYYYMMDD>-<git sha7> (immutable, goes into deployment manifests)
 #             sha-<sha7>            (immutable, for tooling that matches by pattern)
@@ -23,6 +24,11 @@ env:
   AWS_REGION: eu-central-1
   AWS_ROLE_ARN: arn:aws:iam::381492053759:role/github-actions-salon-app
   ECR_REPOSITORY: salon-api
+  WEB_BUCKET: charmskin-web-dev-381492053759
+  WEB_DISTRIBUTION_ID: E3QQ15ZBF5L9HL
+  # Compiled into the bundle at build time (astro:env). The dev API does not exist yet —
+  # the "Status API" section will show an error until api.pgajewsk.pl is live.
+  PUBLIC_API_URL: https://api.pgajewsk.pl
 
 jobs:
   # ------------------------------------------------------------------ test
@@ -107,3 +113,42 @@ jobs:
             ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:sha-${{ steps.meta.outputs.sha7 }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # ----------------------------------------------------------- deploy web
+  deploy-web:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Assume AWS role via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # --delete removes files that no longer exist in dist/ (renamed pages, old hashed assets).
+      - name: Sync to S3
+        run: aws s3 sync frontend/dist/ "s3://${WEB_BUCKET}/" --delete
+
+      # Edges may cache index.html for a long time; force a refresh of everything.
+      # Wildcard invalidations count as one path — the first 1000/month are free.
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${WEB_DISTRIBUTION_ID}" \
+            --paths "/*" \
+            --query 'Invalidation.{id:Id,status:Status}' --output table
