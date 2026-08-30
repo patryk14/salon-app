@@ -1,15 +1,20 @@
 # CI for salon-app.
-# Stage 1, step 1: prove that GitHub → AWS identity works (OIDC, no stored keys).
-# Build/test/push to ECR are added once this passes.
+#
+#   pull_request → test only (no AWS: the CI role trusts refs/heads/main exclusively)
+#   push to main → test → build the api image (arm64) → push to ECR
+#
+# Image tags: <YYYYMMDD>-<git sha7> (immutable, goes into deployment manifests)
+#             sha-<sha7>            (immutable, for tooling that matches by pattern)
+# Never `latest` — ECR is IMMUTABLE and would reject the second push anyway.
 
 name: ci
 
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
 
-# Least privilege for the GITHUB_TOKEN of this run.
-# id-token: write is what lets the job request an OIDC token from GitHub.
 permissions:
   contents: read
   id-token: write
@@ -17,16 +22,88 @@ permissions:
 env:
   AWS_REGION: eu-central-1
   AWS_ROLE_ARN: arn:aws:iam::381492053759:role/github-actions-salon-app
+  ECR_REPOSITORY: salon-api
 
 jobs:
-  whoami:
-    runs-on: ubuntu-24.04-arm   # arm64 runner: same architecture as the Graviton targets
+  # ------------------------------------------------------------------ test
+  test:
+    runs-on: ubuntu-24.04-arm
     steps:
+      - uses: actions/checkout@v4
+
+      # Same uv version as mise.toml and the Dockerfile builder — one lockfile, one reader.
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.7"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Backend lint
+        working-directory: backend
+        run: |
+          uv run --locked ruff check .
+          uv run --locked ruff format --check .
+
+      - name: Backend tests
+        working-directory: backend
+        run: uv run --locked pytest -q
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Frontend build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+  # ----------------------------------------------------------- build+push
+  build-push:
+    needs: test
+    # Only real commits on main reach AWS. PRs stop after `test`.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image tag
+        id: meta
+        run: |
+          sha7="${GITHUB_SHA::7}"
+          tag="$(date -u +%Y%m%d)-${sha7}"
+          echo "tag=${tag}"   >> "$GITHUB_OUTPUT"
+          echo "sha7=${sha7}" >> "$GITHUB_OUTPUT"
+          echo "Image tag: ${tag}" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Assume AWS role via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Who am I in AWS?
-        run: aws sts get-caller-identity
+      # Exchanges the temporary AWS credentials for a 12 h docker login token.
+      - name: Login to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Same Dockerfile as `make build` locally. Native arm64 runner → no QEMU.
+      # cache-from/to gha: layer cache between runs, so only the code layer rebuilds.
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          platforms: linux/arm64
+          push: true
+          provenance: false   # keeps a single manifest per tag (no attestation manifests as untagged images)
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.meta.outputs.tag }}
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:sha-${{ steps.meta.outputs.sha7 }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
