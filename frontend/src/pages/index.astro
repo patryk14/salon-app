@@ -1,0 +1,115 @@
+---
+// Home page — a placeholder until the content from charmskin.pl is migrated.
+// The "Status API" section exists solely to prove the bridge
+// frontend (static) → backend (FastAPI). The fetch runs in the browser,
+// so the backend must allow CORS for the frontend origin.
+// User-facing copy is Polish on purpose: this is the salon's site for its clients.
+import { PUBLIC_API_URL } from 'astro:env/client';
+---
+
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" href="/favicon.ico" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="generator" content={Astro.generator} />
+    <meta
+      name="description"
+      content="Charm Skin — salon kosmetyczny. Profesjonalna pielęgnacja skóry."
+    />
+    <title>Charm Skin — salon kosmetyczny</title>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Charm Skin</h1>
+        <p class="tagline">Salon kosmetyczny</p>
+      </header>
+
+      <section>
+        <p>
+          Strona w przebudowie. Wkrótce znajdziesz tu ofertę zabiegów, katalog
+          produktów oraz panel klientki z historią wizyt.
+        </p>
+      </section>
+
+      <section aria-labelledby="api-status-heading">
+        <h2 id="api-status-heading">Status API</h2>
+        <p>
+          Odpytywany adres: <code id="api-url">{PUBLIC_API_URL}/healthz</code>
+        </p>
+        <p id="api-status" data-state="pending">Sprawdzam…</p>
+      </section>
+    </main>
+
+    <script>
+      // Runs in the browser. PUBLIC_API_URL (schema in astro.config.mjs) is replaced
+      // with a constant at build time, so there is nothing to configure at runtime
+      // in dist/ — a different backend means a new build.
+      import { PUBLIC_API_URL } from 'astro:env/client';
+      const el = document.getElementById('api-status')!;
+
+      async function checkApi(): Promise<void> {
+        try {
+          const res = await fetch(`${PUBLIC_API_URL}/healthz`);
+          const body = (await res.json()) as { status?: string };
+          if (res.ok && body.status === 'ok') {
+            el.dataset.state = 'ok';
+            el.textContent = `OK — backend odpowiada (HTTP ${res.status})`;
+          } else {
+            el.dataset.state = 'error';
+            el.textContent = `Błąd — HTTP ${res.status}, odpowiedź: ${JSON.stringify(body)}`;
+          }
+        } catch (err) {
+          el.dataset.state = 'error';
+          el.textContent = `Niedostępne — ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
+
+      checkApi();
+    </script>
+
+    <style>
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        line-height: 1.5;
+        color: #2b2b2b;
+        background: #fbf7f4;
+      }
+      main {
+        max-width: 40rem;
+        margin: 0 auto;
+        padding: 3rem 1.5rem;
+      }
+      h1 {
+        margin: 0;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .tagline {
+        margin: 0.25rem 0 2rem;
+        color: #7a6a63;
+      }
+      section + section {
+        margin-top: 2rem;
+        padding-top: 1.5rem;
+        border-top: 1px solid #e8ddd7;
+      }
+      code {
+        font-size: 0.9em;
+        background: #f0e8e3;
+        padding: 0.1em 0.4em;
+        border-radius: 4px;
+      }
+      #api-status[data-state='ok'] {
+        color: #1f7a3f;
+      }
+      #api-status[data-state='error'] {
+        color: #b3261e;
+      }
+    </style>
+  </body>
+</html>

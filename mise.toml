@@ -1,0 +1,9 @@
+# Toolchain for this repo — https://mise.jdx.dev (`mise install` in the repo root, once).
+# Versions must match the images: uv from backend/Dockerfile (uv.lock is generated and
+# read by the same version), python 3.13 from the runtime image, node 24 from Dockerfile.dev.
+# `docker compose up` alone does not need this — only `make test` / `make lint` / `npm run build`.
+
+[tools]
+python = "3.13"
+uv     = "0.12.7"
+node   = "24"

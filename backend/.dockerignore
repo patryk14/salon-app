@@ -1,0 +1,13 @@
+# Only pyproject.toml, uv.lock and app/ make it into the image
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+tests/
+.git/
+.env
+.env.*
+*.md
+Dockerfile
+.dockerignore

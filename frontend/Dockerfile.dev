@@ -1,0 +1,27 @@
+# Image for LOCAL development ONLY (docker compose): the Astro dev server with hot
+# reload. Production does NOT use this image — the frontend is static:
+# `npm run build` → dist/ → S3 + CloudFront (see README).
+FROM node:24-alpine
+
+# Non-root (uid 1000 `node` ships with the image): on Linux, files the dev server
+# creates on the bind mount (.astro/, dist/) would otherwise be owned by root on the host.
+USER node
+WORKDIR /app
+
+# Manifests first, so the node_modules layer is cached independently of code changes.
+COPY --chown=node:node package.json package-lock.json ./
+RUN npm ci
+
+COPY --chown=node:node . .
+
+EXPOSE 4321
+
+# --host 0.0.0.0: the dev server must listen on all interfaces, otherwise it is not
+# reachable from outside the container.
+# --ignore-lock: Astro writes a dev-server lock (.astro/dev.json, holding a PID) into the
+# project directory, i.e. onto the host bind mount. The lock survives `docker compose down`
+# and the next container refuses to start ("Another astro dev server is already running").
+# `--force` is worse: it kills the PID from the lock, which in a fresh container can be
+# Astro's own PID. --ignore-lock neither reads nor writes the lock — inside a container
+# there is nothing to coordinate.
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--ignore-lock"]

@@ -1,0 +1,37 @@
+[project]
+name = "salon-api"
+version = "0.1.0"
+description = "Charm Skin salon application backend (FastAPI)"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2",
+    "pydantic-settings>=2.5",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    # starlette >= 1.6 requires httpx2 in TestClient (legacy httpx 0.x = DeprecationWarning)
+    "httpx2>=2.0",
+    "ruff>=0.6",
+]
+
+[tool.uv]
+# This repo is an application, not a library: uv installs dependencies only, no package build.
+# The Dockerfile therefore needs no build backend — it just copies the app/ directory.
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -1,0 +1,27 @@
+# The only .gitignore in the repo — patterns apply at every directory level.
+
+# Secrets and local configuration — never committed
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+
+# Node / Astro
+node_modules/
+dist/
+.astro/
+npm-debug.log*
+
+# macOS / editors
+.DS_Store
+.idea/
+.vscode/

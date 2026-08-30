@@ -1,0 +1,182 @@
+# Charm Skin local environment.
+#
+# Boundary rule: locally we emulate ONLY standard protocols —
+# Postgres (instead of RDS), MinIO (S3 API), Mailpit (SMTP instead of SES).
+# Nothing AWS-specific (IAM, Cognito, Route53) — no LocalStack.
+#
+# The same `api` image ships to AWS. Differences live exclusively in environment
+# variables (see .env.example), never in code or in the Dockerfile.
+#
+# Start: `make up` (or: cp .env.example .env && docker compose up -d --wait).
+# The .env file is optional — every variable here has a default equal to .env.example.
+#
+# All ports are published on 127.0.0.1, not 0.0.0.0: a laptop ends up on untrusted
+# networks (cafés), and behind these ports sit Postgres, the MinIO root account, every
+# e-mail the app sends, and Swagger.
+#
+# Third-party images are pinned by tag + digest (reproducibility); refreshing them is
+# left to a bot (Renovate/Dependabot with the `docker` manager) once CI exists.
+
+name: salon
+
+services:
+  # ---------------------------------------------------------------- backend
+  api:
+    build: ./backend
+    image: salon-api:local
+    ports:
+      - "127.0.0.1:8000:8000"
+    # Locally we override the Dockerfile CMD to get hot reload.
+    # In AWS the container starts with the image's default CMD (no --reload).
+    command: ["uvicorn", "--factory", "app.main:create_app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    # An explicit list of what api actually reads (not `env_file: .env` — api must not
+    # receive the MinIO root login or the Postgres password). `${VAR:-...}` is
+    # interpolated from .env if present; otherwise the default applies.
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:4321}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://salon:salon@db:5432/salon}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://minio:9000}
+      S3_BUCKET: ${S3_BUCKET:-salon-photos}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minio}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-minio12345}
+      AWS_REGION: ${AWS_REGION:-eu-central-1}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      # A bind mount from macOS (colima/virtiofs, Docker Desktop) delivers no inotify
+      # events into the container — without polling, --reload never notices code changes.
+      WATCHFILES_FORCE_POLLING: "true"
+    volumes:
+      - ./backend/app:/app/app   # source code → uvicorn --reload sees changes
+    develop:
+      watch:
+        # A dependency change requires an image rebuild (active with `docker compose up --watch`)
+        - action: rebuild
+          path: ./backend/pyproject.toml
+        - action: rebuild
+          path: ./backend/uv.lock
+    depends_on:
+      db:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      mailpit:
+        condition: service_healthy
+    healthcheck:
+      # The probe (test) comes from the image (backend/Dockerfile) — here we only poll
+      # faster so `up --wait` does not sit for 30 s.
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+
+  # --------------------------------------------------------------- database
+  db:
+    image: postgres:17-alpine
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-salon}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-salon}
+      POSTGRES_DB: ${POSTGRES_DB:-salon}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      # -h 127.0.0.1: check over TCP, the way api connects. During initdb the image runs a
+      # temporary server on the unix socket only — without -h the healthcheck would report
+      # "healthy" before anything listens on port 5432.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-salon} -d ${POSTGRES_DB:-salon}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # ------------------------------------------------- object storage (S3 API)
+  minio:
+    # Last community release — upstream no longer publishes images (the `latest` tag has
+    # been frozen since 2025-09). Deliberately dev-only, port on loopback only.
+    # If that stays the case, consider another S3-API server (Garage/RustFS) when photo
+    # upload lands (Stage 2) — the code will not change, we only emulate the protocol.
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    command: ["server", "/data", "--console-address", ":9001"]
+    ports:
+      - "127.0.0.1:9000:9000"   # S3 API
+      - "127.0.0.1:9001:9001"   # web console
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio12345}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # One-shot: creates the photo bucket and exits.
+  # In AWS the bucket is created by Terraform (salon-infra) — this is the local equivalent.
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        mc alias set local http://minio:9000 "${MINIO_ROOT_USER:-minio}" "${MINIO_ROOT_PASSWORD:-minio12345}" &&
+        mc mb --ignore-existing "local/${S3_BUCKET:-salon-photos}" &&
+        echo "bucket ${S3_BUCKET:-salon-photos} ready"
+    restart: "no"
+
+  # ------------------------------------------------------------ mail (SMTP)
+  mailpit:
+    image: axllent/mailpit:v1.31.0@sha256:c96991d9bef73594c246d89ca81411d4e916f03e76a7d2d72fa2ab5dd3c9ce24
+    user: "1000:1000"   # writes nothing to disk — no reason to run as root
+    ports:
+      - "127.0.0.1:8025:8025"   # UI — inspect sent e-mails
+      - "127.0.0.1:1025:1025"   # SMTP
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8025/livez"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------------------------------------------------------------- frontend
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "127.0.0.1:4321:4321"
+    environment:
+      # API address as seen from the BROWSER (not from the container) — hence localhost.
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8000}
+      # As above: a macOS bind mount has no inotify → Vite must poll for HMR to work.
+      CHOKIDAR_USEPOLLING: "true"
+      ASTRO_TELEMETRY_DISABLED: "1"
+    volumes:
+      - ./frontend:/app
+      # node_modules from the image, not from the host. A named volume (not anonymous):
+      # `down -v` cleans it up and no orphans pile up after each `down`/`up`. It is filled
+      # from the image only once, so after changing package.json it must be removed
+      # (recipe in README; NOT `down -v web` — that also deletes db_data and minio_data
+      # whenever they happen not to be in use).
+      - web_node_modules:/app/node_modules
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      # node:alpine has busybox wget; without a healthcheck `--wait` treats web as ready
+      # the moment the process starts.
+      # 127.0.0.1, not localhost: in alpine localhost → ::1, and Astro listens on IPv4 only (0.0.0.0).
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:4321/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  db_data:
+  minio_data:
+  web_node_modules:
