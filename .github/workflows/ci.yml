@@ -101,7 +101,35 @@ jobs:
 
       # Same Dockerfile as `make build` locally. Native arm64 runner → no QEMU.
       # cache-from/to gha: layer cache between runs, so only the code layer rebuilds.
-      - name: Build and push
+      # Two-step build: first load the image into the local daemon for a smoke test,
+      # then push. Pushing an image nobody has ever started is how a typo in CMD
+      # reaches the registry with a green pipeline.
+      - name: Build (load locally)
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          platforms: linux/arm64
+          load: true
+          tags: salon-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Start the image exactly as the platform will (default CMD, no --reload), with
+      # the required env but no database, and require /healthz to answer. /readyz is
+      # not checked — it needs Postgres, and liveness is what proves the image boots.
+      - name: Smoke test the image
+        run: |
+          docker run -d --name api -p 8000:8000 \
+            -e DATABASE_URL=postgresql+psycopg://x:x@localhost:5432/x \
+            -e S3_BUCKET=x -e SMTP_HOST=x -e CORS_ORIGINS=http://localhost \
+            salon-api:ci
+          for i in $(seq 1 15); do
+            if curl -fsS http://localhost:8000/healthz; then echo; echo "healthz OK after ${i}s"; exit 0; fi
+            sleep 1
+          done
+          echo "::error::/healthz did not answer within 15s"; docker logs api; exit 1
+
+      - name: Push
         uses: docker/build-push-action@v6
         with:
           context: backend
@@ -111,8 +139,7 @@ jobs:
           tags: |
             ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.meta.outputs.tag }}
             ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:sha-${{ steps.meta.outputs.sha7 }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha   # everything is cached from the step above → seconds, same layers
 
   # ----------------------------------------------------------- deploy web
   deploy-web:
