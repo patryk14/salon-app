@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Backend image — the same one runs locally (docker compose) and in AWS (ECR → App Runner).
+# Backend image — the same one runs locally (docker compose) and in AWS (ECR → Lambda).
 # Multi-stage: uv installs dependencies in the builder; the runtime gets only the
 # finished .venv plus the code. Base images are multi-arch (arm64/amd64) — nothing
 # here is tied to an architecture.
@@ -40,6 +40,13 @@ RUN python -m pip uninstall -y pip \
 WORKDIR /app
 COPY --from=builder --chown=app:app /app/.venv ./.venv
 COPY --from=builder --chown=app:app /app/app ./app
+
+# AWS Lambda Web Adapter: a single static binary that Lambda discovers as an
+# extension. Inside Lambda it translates invoke events into plain HTTP calls to
+# uvicorn (port from AWS_LWA_PORT); anywhere else (compose, CI, EKS) the file just
+# sits unused — it only activates when AWS_LAMBDA_RUNTIME_API is present. This is
+# what lets ONE image serve both docker-run and Lambda without code changes.
+COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.9.1 /lambda-adapter /opt/extensions/lambda-adapter
 
 USER app
 EXPOSE 8000

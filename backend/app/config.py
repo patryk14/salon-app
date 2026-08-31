@@ -21,7 +21,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore")
 
-    app_env: Literal["local", "lab", "prod"] = "local"
+    app_env: Literal["local", "dev", "lab", "prod"] = "local"
 
     # Secret (contains the password) — required.
     database_url: SecretStr
