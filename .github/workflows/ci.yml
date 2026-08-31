@@ -26,6 +26,7 @@ env:
   ECR_REPOSITORY: salon-api
   WEB_BUCKET: charmskin-web-dev-381492053759
   WEB_DISTRIBUTION_ID: E3QQ15ZBF5L9HL
+  API_FUNCTION_NAME: salon-api-dev
   # Compiled into the bundle at build time (astro:env). The dev API does not exist yet —
   # the "Status API" section will show an error until api.pgajewsk.pl is live.
   PUBLIC_API_URL: https://api.pgajewsk.pl
@@ -74,6 +75,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     outputs:
       image_tag: ${{ steps.meta.outputs.tag }}
+      registry: ${{ steps.ecr.outputs.registry }}
     steps:
       - uses: actions/checkout@v4
 
@@ -179,3 +181,41 @@ jobs:
             --distribution-id "${WEB_DISTRIBUTION_ID}" \
             --paths "/*" \
             --query 'Invalidation.{id:Id,status:Status}' --output table
+
+  # ----------------------------------------------------------- deploy api
+  # The Lambda itself (role, env, domain) is Terraform's; CI only points it at the
+  # image that just passed the smoke test. The CI role may UpdateFunctionCode on
+  # this one function and nothing else.
+  deploy-api:
+    needs: build-push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Assume AWS role via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # update-function-code is asynchronous: it returns while LastUpdateStatus is
+      # still InProgress. The wait matters — without it the smoke test below can
+      # get a warm instance still running the PREVIOUS image.
+      - name: Point Lambda at the new image
+        run: |
+          aws lambda update-function-code \
+            --function-name "${API_FUNCTION_NAME}" \
+            --image-uri "${{ needs.build-push.outputs.registry }}/${ECR_REPOSITORY}:${{ needs.build-push.outputs.image_tag }}" \
+            --query '{status:LastUpdateStatus,image:ImageUri}' --output table
+          aws lambda wait function-updated-v2 --function-name "${API_FUNCTION_NAME}"
+
+      # End-to-end through the real path: DNS → API Gateway → Lambda → uvicorn.
+      # First hit after the update is a cold start, hence the retries.
+      - name: Smoke test via api.pgajewsk.pl
+        run: |
+          for i in $(seq 1 10); do
+            if curl -fsS --max-time 10 https://api.pgajewsk.pl/healthz; then
+              echo; echo "healthz OK (attempt ${i})"; exit 0
+            fi
+            sleep 3
+          done
+          echo "::error::/healthz did not answer after 10 attempts"; exit 1
