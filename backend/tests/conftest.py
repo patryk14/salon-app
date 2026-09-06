@@ -31,3 +31,42 @@ def client() -> TestClient:
     # The context manager runs the lifespan — this also exercises fail-fast config validation.
     with TestClient(create_app()) as c:
         yield c
+
+
+@pytest.fixture
+def db_client() -> TestClient:
+    """TestClient with a real (in-memory SQLite) database behind get_db.
+
+    StaticPool keeps the single :memory: database alive across sessions; schema
+    comes from Base.metadata, so these tests also catch model/migration drift
+    at the ORM level. Postgres-only behavior is exercised in compose, not here.
+    """
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    from app.deps import get_db
+    from app.models import Base
+
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+
+    def override_get_db():
+        session = factory()
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    app = create_app()
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as c:
+        yield c
+    engine.dispose()

@@ -7,3 +7,12 @@
 python = "3.13"
 uv     = "0.12.7"
 node   = "24"
+
+# Host-run tooling (alembic, ad-hoc scripts) needs the same env the api container
+# gets from compose. EXPLICITLY NON-SECRET: local container credentials only —
+# matching the docker-compose.yml defaults. AWS values never belong here.
+[env]
+DATABASE_URL = "postgresql+psycopg://salon:salon@127.0.0.1:5432/salon"
+S3_BUCKET    = "salon-photos"
+SMTP_HOST    = "127.0.0.1"
+CORS_ORIGINS = "http://localhost:4321"
