@@ -35,6 +35,10 @@ services:
     environment:
       APP_ENV: ${APP_ENV:-local}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:4321}
+      # Real dev Cognito — the boundary rule says never emulate AWS-specific
+      # services locally. Non-secret identifiers (pool is public knowledge).
+      AUTH_ISSUER: ${AUTH_ISSUER:-https://cognito-idp.eu-central-1.amazonaws.com/eu-central-1_uWBM7LTRv}
+      AUTH_AUDIENCE: ${AUTH_AUDIENCE:-7rl6qhkurb1bn598rvjvu7k4pg}
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://salon:salon@db:5432/salon}
       S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://minio:9000}
       S3_BUCKET: ${S3_BUCKET:-salon-photos}

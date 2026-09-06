@@ -12,7 +12,9 @@ node   = "24"
 # gets from compose. EXPLICITLY NON-SECRET: local container credentials only —
 # matching the docker-compose.yml defaults. AWS values never belong here.
 [env]
-DATABASE_URL = "postgresql+psycopg://salon:salon@127.0.0.1:5432/salon"
-S3_BUCKET    = "salon-photos"
-SMTP_HOST    = "127.0.0.1"
-CORS_ORIGINS = "http://localhost:4321"
+DATABASE_URL  = "postgresql+psycopg://salon:salon@127.0.0.1:5432/salon"
+S3_BUCKET     = "salon-photos"
+SMTP_HOST     = "127.0.0.1"
+CORS_ORIGINS  = "http://localhost:4321"
+AUTH_ISSUER   = "https://cognito-idp.eu-central-1.amazonaws.com/eu-central-1_uWBM7LTRv"
+AUTH_AUDIENCE = "7rl6qhkurb1bn598rvjvu7k4pg"

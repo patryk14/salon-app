@@ -41,6 +41,14 @@ class Settings(BaseSettings):
     # must stop startup, not silently trust the dev origin.
     cors_origins: str
 
+    # Auth: Cognito OIDC issuer + expected client id. The app validates Bearer
+    # JWTs itself (signature via the issuer's JWKS, exp, token_use, client_id) —
+    # independently of the API Gateway authorizer. Same values locally: the
+    # boundary rule says never emulate Cognito, so compose talks to the real
+    # dev user pool. No defaults — missing auth config must stop startup.
+    auth_issuer: str
+    auth_audience: str
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

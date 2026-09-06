@@ -212,10 +212,22 @@ jobs:
       # First hit after the update is a cold start, hence the retries.
       - name: Smoke test via api.pgajewsk.pl
         run: |
+          ok=""
           for i in $(seq 1 10); do
             if curl -fsS --max-time 10 https://api.pgajewsk.pl/healthz; then
-              echo; echo "healthz OK (attempt ${i})"; exit 0
+              echo; echo "healthz OK (attempt ${i})"; ok=1; break
             fi
             sleep 3
           done
-          echo "::error::/healthz did not answer after 10 attempts"; exit 1
+          [ -n "$ok" ] || { echo "::error::/healthz did not answer after 10 attempts"; exit 1; }
+
+      # The door must stay locked: anonymous requests to anything but the
+      # health probe get 401 at the gateway. If this ever returns 200, auth
+      # regressed in Terraform — fail loudly.
+      - name: Verify anonymous requests are rejected
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 https://api.pgajewsk.pl/clients)
+          if [ "$code" != "401" ]; then
+            echo "::error::/clients answered ${code} without a token (expected 401)"; exit 1
+          fi
+          echo "anonymous /clients -> 401 OK"

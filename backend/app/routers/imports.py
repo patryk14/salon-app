@@ -14,13 +14,15 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.auth import require_role
 from app.booksy import BooksyParseError, VisitRow, parse_visits_report, split_name
 from app.deps import get_db
 from app.models import Client, Visit
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/imports", tags=["imports"])
+# Imports mutate the whole dataset (creates clients, rewrites visits) — owner only.
+router = APIRouter(prefix="/imports", tags=["imports"], dependencies=[require_role("admin")])
 
 
 class ImportSummary(BaseModel):

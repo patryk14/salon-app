@@ -1,8 +1,8 @@
 """Client profiles + their visits.
 
-Auth note: these endpoints are admin-facing and currently UNPROTECTED — fine in
-compose, unacceptable on a public URL. Cognito (staff/admin groups) lands in a
-later slice; until then the api on AWS must not expose this router publicly.
+Gated to staff+admin (F0): the front desk needs client profiles day-to-day.
+Row-scoped CLIENT access (a client seeing only herself) arrives with the
+client portal slice — these endpoints stay staff-facing.
 """
 
 from typing import Annotated
@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.auth import require_role
 from app.deps import get_db
 from app.models import Client, Visit
 from app.schemas import (
@@ -23,8 +24,8 @@ from app.schemas import (
     VisitUpdate,
 )
 
-router = APIRouter(prefix="/clients", tags=["clients"])
-visits_router = APIRouter(prefix="/visits", tags=["visits"])
+router = APIRouter(prefix="/clients", tags=["clients"], dependencies=[require_role("staff")])
+visits_router = APIRouter(prefix="/visits", tags=["visits"], dependencies=[require_role("staff")])
 
 DbDep = Annotated[Session, Depends(get_db)]
 
