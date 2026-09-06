@@ -192,11 +192,37 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04-arm
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.7"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
       - name: Assume AWS role via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
+      # Schema BEFORE code (expand-contract): the new image must never meet an
+      # old schema. Aurora may be auto-paused — the first connection resumes it
+      # (~15 s), which alembic simply waits out. Non-DB settings are dummies:
+      # alembic only needs DATABASE_URL, the rest just satisfies fail-fast config.
+      - name: Run database migrations
+        working-directory: backend
+        env:
+          S3_BUCKET: x
+          SMTP_HOST: x
+          CORS_ORIGINS: http://localhost
+          AUTH_ISSUER: https://migrations.invalid
+          AUTH_AUDIENCE: x
+        run: |
+          url="$(aws ssm get-parameter --name /charmskin/dev/database-url \
+            --with-decryption --query Parameter.Value --output text)"
+          DATABASE_URL="$url" uv run --locked alembic upgrade head
+          echo "schema at: $(DATABASE_URL="$url" uv run --locked alembic current 2>/dev/null | tail -1)"
 
       # update-function-code is asynchronous: it returns while LastUpdateStatus is
       # still InProgress. The wait matters — without it the smoke test below can
