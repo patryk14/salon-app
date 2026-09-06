@@ -76,7 +76,11 @@ services:
 
   # --------------------------------------------------------------- database
   db:
-    image: postgres:17-alpine
+    # 18, not 17: parity with Aurora PostgreSQL 18.4 in dev — same engine major
+    # locally and in AWS, or version-specific bugs hide until deploy.
+    # NOTE: a major bump cannot read the old data dir — reset the local volume
+    # once (docker compose down -v db… see README) and re-run migrations.
+    image: postgres:18-alpine
     ports:
       - "127.0.0.1:5432:5432"
     environment:
