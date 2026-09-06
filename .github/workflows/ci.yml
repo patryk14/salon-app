@@ -124,6 +124,7 @@ jobs:
           docker run -d --name api -p 8000:8000 \
             -e DATABASE_URL=postgresql+psycopg://x:x@localhost:5432/x \
             -e S3_BUCKET=x -e SMTP_HOST=x -e CORS_ORIGINS=http://localhost \
+            -e AUTH_ISSUER=https://smoke.invalid -e AUTH_AUDIENCE=smoke \
             salon-api:ci
           for i in $(seq 1 15); do
             if curl -fsS http://localhost:8000/healthz; then echo; echo "healthz OK after ${i}s"; exit 0; fi
