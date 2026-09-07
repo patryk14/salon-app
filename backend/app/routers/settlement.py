@@ -218,6 +218,40 @@ def upsert_line(
     return SettlementLineOut.model_validate(line)
 
 
+@settlement.post("/periods/{year_month}/lines/{employee_id}/derive")
+def derive_line_from_sources(year_month: str, employee_id: int, db: DbDep) -> SettlementLineOut:
+    """Pre-fill this line's hours + cash_services from the month's timesheets and
+    ledger (F3), then recompute. Booksy/notebook figures stay as entered — those
+    come from the Booksy import (F5) and the notebook (F4), not this."""
+    from app.routers.worklog import monthly_cash, monthly_hours
+
+    period = _get_period(db, year_month)
+    if period.status != "draft":
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="period is closed")
+    emp = db.get(Employee, employee_id)
+    if emp is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="employee not found")
+
+    line = db.scalar(
+        select(SettlementLine).where(
+            SettlementLine.period_id == period.id, SettlementLine.employee_id == employee_id
+        )
+    )
+    payload = SettlementInputIn(
+        booksy_services=line.booksy_services if line else Decimal("0"),
+        booksy_sales=line.booksy_sales if line else Decimal("0"),
+        notebook_services=line.notebook_services if line else Decimal("0"),
+        notebook_sales=line.notebook_sales if line else Decimal("0"),
+        cash_sales=line.cash_sales if line else Decimal("0"),
+        override_total=line.override_total if line else None,
+        override_reason=line.override_reason if line else None,
+        # derived from F3 sources:
+        cash_services=monthly_cash(db, employee_id, year_month),
+        hours=monthly_hours(db, employee_id, year_month),
+    )
+    return upsert_line(year_month, employee_id, payload, db)
+
+
 @settlement.post("/periods/{year_month}/close")
 def close_period(year_month: str, user: UserDep, db: DbDep) -> SettlementPeriodOut:
     period = _get_period(db, year_month)

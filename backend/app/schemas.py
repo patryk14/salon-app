@@ -187,3 +187,47 @@ class DecisionOut(BaseModel):
     topic: str
     ruling: str
     decided_by: str
+
+
+# ---------------------------------------------------------- worklog (F3)
+class TimesheetCreate(BaseModel):
+    employee_id: int
+    work_date: date
+    hours: Decimal = Field(ge=0, le=24, max_digits=5, decimal_places=2)
+    note: str | None = None
+
+
+class TimesheetOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    employee_id: int
+    work_date: date
+    hours: Decimal
+    note: str | None
+
+
+class LedgerCreate(BaseModel):
+    employee_id: int
+    entry_date: date
+    amount_pln: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
+    note: str | None = None
+
+
+class LedgerOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    employee_id: int
+    entry_date: date
+    amount_pln: Decimal
+    note: str | None
+
+
+class DerivedSources(BaseModel):
+    """What the month's timesheets + ledger sum to for one employee — the
+    numbers that pre-fill a settlement line's hours and cash_services."""
+
+    employee_id: int
+    hours: Decimal
+    cash_services: Decimal

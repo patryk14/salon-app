@@ -213,3 +213,41 @@ class SettlementLine(TimestampMixin, Base):
     __table_args__ = (
         Index("ix_settlement_lines_period_employee", "period_id", "employee_id", unique=True),
     )
+
+
+# --------------------------------------------------------------- worklog (F3)
+class TimesheetEntry(TimestampMixin, Base):
+    """Hours an employee worked on a day. Base pay = hours × rate (for Klaudia,
+    only her extra hours). One row per (employee, day) — upsert; summed per
+    month it feeds the settlement's `hours`."""
+
+    __tablename__ = "timesheet_entries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(
+        ForeignKey("employees.id", ondelete="CASCADE"), nullable=False
+    )
+    work_date: Mapped[date] = mapped_column(Date, nullable=False)
+    hours: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (Index("ix_timesheet_employee_date", "employee_id", "work_date", unique=True),)
+
+
+class LedgerEntry(TimestampMixin, Base):
+    """Unregistered cash for a service, credited to the performer (replaces the
+    'Gotówka' rows of zabiegi_koszty.xlsx). Multiple per day; summed per month
+    it feeds the settlement's `cash_services`. Rollups are always computed here,
+    never stored — the class of bug that dropped Julia's cash is impossible."""
+
+    __tablename__ = "ledger_entries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(
+        ForeignKey("employees.id", ondelete="CASCADE"), nullable=False
+    )
+    entry_date: Mapped[date] = mapped_column(Date, nullable=False)
+    amount_pln: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (Index("ix_ledger_employee_date", "employee_id", "entry_date"),)
