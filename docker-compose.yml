@@ -88,7 +88,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-salon}
       POSTGRES_DB: ${POSTGRES_DB:-salon}
     volumes:
-      - db_data:/var/lib/postgresql/data
+      # postgres:18 moved PGDATA into a subdirectory of /var/lib/postgresql and
+      # rejects the old .../data mount point. Mount the parent (18+ convention).
+      - db_data:/var/lib/postgresql
     healthcheck:
       # -h 127.0.0.1: check over TCP, the way api connects. During initdb the image runs a
       # temporary server on the unix socket only — without -h the healthcheck would report
