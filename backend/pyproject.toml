@@ -37,6 +37,11 @@ target-version = "py313"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
+[tool.ruff.lint.per-file-ignores]
+# Migrations carry long seeded-data literals (rulings, connection strings) that
+# don't benefit from wrapping.
+"alembic/versions/*" = ["E501"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
