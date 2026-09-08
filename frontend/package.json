@@ -12,7 +12,10 @@
     "astro": "astro"
   },
   "dependencies": {
-    "astro": "^7.2.9"
+    "@astrojs/preact": "^6.0.5",
+    "astro": "^7.2.9",
+    "oidc-client-ts": "^3.5.0",
+    "preact": "^10.29.8"
   },
   "allowScripts": {
     "esbuild": true

@@ -1,0 +1,35 @@
+---
+// OAuth redirect target (registered in Cognito as .../panel/callback).
+// A client-only island exchanges the code and redirects to /panel.
+import AuthCallback from '../../components/AuthCallback.tsx';
+---
+
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Logowanie — Charm Skin</title>
+  </head>
+  <body>
+    <main>
+      <AuthCallback client:only="preact" />
+    </main>
+    <style is:global>
+      :root { --paper: #f6f2ef; --ink: #2c2320; --muted: #8a7d76; --accent: #8a4d6d;
+        --err: #b4462f; --err-soft: #f8e4de; --card: #fff; --line: #e9dfd8; --line2: #dccec4; }
+      @media (prefers-color-scheme: dark) {
+        :root { --paper: #1b1917; --ink: #ece5e1; --muted: #a99d95; --accent: #d295b3;
+          --err: #e5917c; --err-soft: #3a251f; --card: #262220; --line: #372f2c; --line2: #463c37; }
+      }
+      body { margin: 0; background: var(--paper); color: var(--ink);
+        font-family: 'Public Sans', system-ui, sans-serif; }
+      main { max-width: 32rem; margin: 0 auto; padding: 4rem 1.5rem; }
+      .muted { color: var(--muted); }
+      .gate { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 1.5rem; display: flex; flex-direction: column; gap: .7rem; align-items: flex-start; }
+      .err { background: var(--err-soft); color: var(--err); border-radius: 8px; padding: .6rem .8rem; font-size: .88rem; }
+      .btn { font: inherit; border-radius: 8px; padding: .5rem .9rem; text-decoration: none; border: 1px solid var(--line2); }
+      .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    </style>
+  </body>
+</html>
