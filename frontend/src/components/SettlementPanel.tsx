@@ -175,6 +175,7 @@ export default function SettlementPanel() {
   }
 
   const closed = period?.status === 'closed';
+  const canEdit = Boolean(period) && !closed;
   const total = (period?.lines ?? []).reduce((s, l) => s + Number(l.total_payout), 0);
 
   return (
@@ -200,14 +201,21 @@ export default function SettlementPanel() {
 
       {error && <div class="err">Błąd: {error}</div>}
 
-      {!period ? (
-        <div class="gate">
-          <p class="muted">Brak okresu {ym}.</p>
+      {employees.length === 0 && !error && <p class="muted">Wczytywanie pracownic…</p>}
+
+      {!period && employees.length > 0 && (
+        <div class="banner">
+          <span>
+            Okres <b>{ym}</b> nie został jeszcze otwarty. Utwórz go, aby wprowadzać liczby i liczyć
+            wypłaty.
+          </span>
           <button class="btn primary" disabled={busy} onClick={createPeriod}>
             Utwórz okres {ym}
           </button>
         </div>
-      ) : (
+      )}
+
+      {employees.length > 0 && (
         <div class="scroll">
           <table>
             <thead>
@@ -239,7 +247,7 @@ export default function SettlementPanel() {
                           class="cell"
                           type="text"
                           inputMode="decimal"
-                          disabled={closed}
+                          disabled={!canEdit}
                           value={line ? (line as unknown as Record<string, string>)[field] : ''}
                           placeholder="0"
                           onBlur={(e) => saveLine(emp.id, field, (e.target as HTMLInputElement).value)}
@@ -252,7 +260,7 @@ export default function SettlementPanel() {
                     <td class="out">{line && Number(line.hours_pay) ? pln(line.hours_pay, 2) : '—'}</td>
                     <td class="payout">{line ? `${pln(line.total_payout)} zł` : '—'}</td>
                     <td>
-                      {!closed && (
+                      {canEdit && (
                         <button class="mini" title="Zassij godziny i gotówkę z ewidencji" onClick={() => derive(emp.id)}>
                           zassij
                         </button>
