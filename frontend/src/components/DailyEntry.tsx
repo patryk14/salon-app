@@ -1,7 +1,8 @@
 // Daily reporting — the real source the monthly settlement is assembled from.
-// Per day, per employee: hours worked (upsert), cash-paid services (ledger),
-// and prepaid package/voucher visits (notebook). The monthly panel then just
-// clicks "zassij wszystko".
+// One card per employee (stacks on any width — no wide table to overflow):
+//   hours (upsert, ≤11), and cash + notebook sections that LIST the day's
+//   entries with a delete button, so a wrong amount is fixed by removing it and
+//   adding the correct one. Service names autocomplete from the Booksy catalog.
 import { useEffect, useState } from 'preact/hooks';
 import { getUser, groupsOf, login } from '../lib/auth';
 import { apiFetch } from '../lib/api';
@@ -16,8 +17,11 @@ interface Timesheet {
   work_date: string;
   hours: string;
 }
-interface Amount {
+interface Entry {
+  id: number;
   employee_id: number;
+  entry_date: string;
+  service_name: string | null;
   amount_pln: string;
 }
 
@@ -27,9 +31,10 @@ function today(): string {
     d.getDate(),
   ).padStart(2, '0')}`;
 }
+const pln = (v: number | string) =>
+  Number(v).toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const pln = (v: number) =>
-  v.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const MAX_HOURS = 11;
 
 export default function DailyEntry() {
   const [ready, setReady] = useState(false);
@@ -37,16 +42,13 @@ export default function DailyEntry() {
   const [day, setDay] = useState(today());
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [hours, setHours] = useState<Record<number, string>>({});
-  const [cashMonth, setCashMonth] = useState<Record<number, number>>({});
-  const [nbMonth, setNbMonth] = useState<Record<number, number>>({});
-  const [cashDraft, setCashDraft] = useState<Record<number, string>>({});
-  const [cashName, setCashName] = useState<Record<number, string>>({});
-  const [nbAmount, setNbAmount] = useState<Record<number, string>>({});
-  const [nbName, setNbName] = useState<Record<number, string>>({});
+  const [ledger, setLedger] = useState<Entry[]>([]);
+  const [notebook, setNotebook] = useState<Entry[]>([]);
   const [services, setServices] = useState<string[]>([]);
+  // drafts keyed "cash-<empId>" / "nb-<empId>"
+  const [name, setName] = useState<Record<string, string>>({});
+  const [amount, setAmount] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
-
-  const MAX_HOURS = 11;
 
   useEffect(() => {
     (async () => {
@@ -60,27 +62,20 @@ export default function DailyEntry() {
     setError(null);
     const month = day.slice(0, 7);
     try {
-      const [emps, ts, ledger, nb, svc] = await Promise.all([
+      const [emps, ts, led, nb, svc] = await Promise.all([
         apiFetch<Employee[]>('/employees'),
         apiFetch<Timesheet[]>(`/timesheets?month=${month}`),
-        apiFetch<Amount[]>(`/ledger?month=${month}`),
-        apiFetch<Amount[]>(`/notebook?month=${month}`),
+        apiFetch<Entry[]>(`/ledger?month=${month}`),
+        apiFetch<Entry[]>(`/notebook?month=${month}`),
         apiFetch<string[]>('/services'),
       ]);
       setEmployees(emps.filter((e) => e.is_active));
       setServices(svc);
-
+      setLedger(led);
+      setNotebook(nb);
       const h: Record<number, string> = {};
       ts.filter((t) => t.work_date === day).forEach((t) => (h[t.employee_id] = t.hours));
       setHours(h);
-
-      const sum = (rows: Amount[]) => {
-        const acc: Record<number, number> = {};
-        rows.forEach((r) => (acc[r.employee_id] = (acc[r.employee_id] ?? 0) + Number(r.amount_pln)));
-        return acc;
-      };
-      setCashMonth(sum(ledger));
-      setNbMonth(sum(nb));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -90,69 +85,59 @@ export default function DailyEntry() {
     if (ready && isAdmin) load();
   }, [ready, isAdmin, day]);
 
+  const forDay = (rows: Entry[], empId: number) =>
+    rows.filter((r) => r.employee_id === empId && r.entry_date === day);
+  const monthSum = (rows: Entry[], empId: number) =>
+    rows.filter((r) => r.employee_id === empId).reduce((s, r) => s + Number(r.amount_pln), 0);
+
   async function saveHours(empId: number, value: string) {
     if (value !== '' && Number(value) > MAX_HOURS) {
       setError(`Maksymalnie ${MAX_HOURS} godzin na dzień — sprawdź wpis.`);
-      await load(); // reset the field to the stored value
+      await load();
       return;
     }
     setError(null);
     try {
       await apiFetch('/timesheets', {
         method: 'POST',
-        body: JSON.stringify({
-          employee_id: empId,
-          work_date: day,
-          hours: value === '' ? '0' : value,
-        }),
+        body: JSON.stringify({ employee_id: empId, work_date: day, hours: value === '' ? '0' : value }),
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }
 
-  async function addCash(empId: number) {
-    const amount = cashDraft[empId];
-    const name = cashName[empId];
-    if (!amount || Number(amount) <= 0) return;
-    if (!name || !name.trim()) {
-      setError('Podaj rodzaj usługi dla wpisu gotówkowego.');
+  async function addEntry(kind: 'cash' | 'nb', empId: number) {
+    const key = `${kind}-${empId}`;
+    const amt = amount[key];
+    const svc = (name[key] ?? '').trim();
+    if (!amt || Number(amt) <= 0) return;
+    if (!svc) {
+      setError('Podaj rodzaj usługi.');
       return;
     }
     try {
-      await apiFetch('/ledger', {
+      const path = kind === 'cash' ? '/ledger' : '/notebook';
+      await apiFetch(path, {
         method: 'POST',
         body: JSON.stringify({
           employee_id: empId,
           entry_date: day,
-          service_name: name,
-          amount_pln: amount,
+          service_name: svc,
+          amount_pln: amt,
         }),
       });
-      setCashDraft((d) => ({ ...d, [empId]: '' }));
-      setCashName((d) => ({ ...d, [empId]: '' }));
+      setName((d) => ({ ...d, [key]: '' }));
+      setAmount((d) => ({ ...d, [key]: '' }));
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }
 
-  async function addNotebook(empId: number) {
-    const amount = nbAmount[empId];
-    const name = nbName[empId] || 'Pakiet / voucher';
-    if (!amount || Number(amount) <= 0) return;
+  async function removeEntry(kind: 'cash' | 'nb', id: number) {
     try {
-      await apiFetch('/notebook', {
-        method: 'POST',
-        body: JSON.stringify({
-          employee_id: empId,
-          entry_date: day,
-          service_name: name,
-          amount_pln: amount,
-        }),
-      });
-      setNbAmount((d) => ({ ...d, [empId]: '' }));
-      setNbName((d) => ({ ...d, [empId]: '' }));
+      await apiFetch(`${kind === 'cash' ? '/ledger' : '/notebook'}/${id}`, { method: 'DELETE' });
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -172,6 +157,53 @@ export default function DailyEntry() {
     );
   }
 
+  function section(kind: 'cash' | 'nb', emp: Employee, rows: Entry[], label: string) {
+    const key = `${kind}-${emp.id}`;
+    const entries = forDay(rows, emp.id);
+    return (
+      <div class="sect">
+        <div class="secthead">
+          {label}
+          <span class="sum">miesiąc: {pln(monthSum(rows, emp.id))} zł</span>
+        </div>
+        {entries.length > 0 && (
+          <ul class="entries">
+            {entries.map((e) => (
+              <li key={e.id}>
+                <span class="svc">{e.service_name ?? '—'}</span>
+                <span class="amt">{pln(e.amount_pln)} zł</span>
+                <button class="del" title="Usuń wpis" onClick={() => removeEntry(kind, e.id)}>
+                  usuń
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div class="addrow">
+          <input
+            class="fld svc-in"
+            type="text"
+            list="booksy-services"
+            placeholder="usługa"
+            value={name[key] ?? ''}
+            onInput={(ev) => setName((d) => ({ ...d, [key]: (ev.target as HTMLInputElement).value }))}
+          />
+          <input
+            class="fld amt-in"
+            type="text"
+            inputMode="decimal"
+            placeholder="kwota"
+            value={amount[key] ?? ''}
+            onInput={(ev) => setAmount((d) => ({ ...d, [key]: (ev.target as HTMLInputElement).value }))}
+          />
+          <button class="btn small" onClick={() => addEntry(kind, emp.id)}>
+            dodaj
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div class="bar">
@@ -180,111 +212,48 @@ export default function DailyEntry() {
         </a>
         <label>
           Dzień:{' '}
-          <input
-            class="month"
-            type="date"
-            value={day}
-            onInput={(e) => setDay((e.target as HTMLInputElement).value)}
-          />
+          <input class="month" type="date" value={day} onInput={(e) => setDay((e.target as HTMLInputElement).value)} />
         </label>
       </div>
       {error && <div class="err">Błąd: {error}</div>}
       {employees.length === 0 && !error && (
         <p class="muted">Budzimy serwer i wczytujemy dane… (do ~15 s po dłuższej przerwie)</p>
       )}
+
       <datalist id="booksy-services">
         {services.map((s) => (
           <option key={s} value={s} />
         ))}
       </datalist>
-      <div class="scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Pracownica</th>
-              <th>Godziny (≤ {MAX_HOURS})</th>
-              <th>Gotówka — dodaj</th>
-              <th>Zeszyt (pakiet) — dodaj</th>
-              <th>Gotówka / zeszyt (mies.)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {employees.map((emp) => (
-              <tr key={emp.id}>
-                <td class="name">{emp.display_name}</td>
-                <td>
-                  <input
-                    class="cell narrow"
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="0"
-                    value={hours[emp.id] ?? ''}
-                    onBlur={(e) => saveHours(emp.id, (e.target as HTMLInputElement).value)}
-                  />
-                </td>
-                <td>
-                  <input
-                    class="cell name-in"
-                    type="text"
-                    list="booksy-services"
-                    placeholder="usługa"
-                    value={cashName[emp.id] ?? ''}
-                    onInput={(e) =>
-                      setCashName((d) => ({ ...d, [emp.id]: (e.target as HTMLInputElement).value }))
-                    }
-                  />
-                  <input
-                    class="cell narrow"
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="kwota"
-                    value={cashDraft[emp.id] ?? ''}
-                    onInput={(e) =>
-                      setCashDraft((d) => ({ ...d, [emp.id]: (e.target as HTMLInputElement).value }))
-                    }
-                  />
-                  <button class="mini" onClick={() => addCash(emp.id)}>
-                    dodaj
-                  </button>
-                </td>
-                <td>
-                  <input
-                    class="cell name-in"
-                    type="text"
-                    list="booksy-services"
-                    placeholder="usługa"
-                    value={nbName[emp.id] ?? ''}
-                    onInput={(e) =>
-                      setNbName((d) => ({ ...d, [emp.id]: (e.target as HTMLInputElement).value }))
-                    }
-                  />
-                  <input
-                    class="cell narrow"
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="wartość"
-                    value={nbAmount[emp.id] ?? ''}
-                    onInput={(e) =>
-                      setNbAmount((d) => ({ ...d, [emp.id]: (e.target as HTMLInputElement).value }))
-                    }
-                  />
-                  <button class="mini" onClick={() => addNotebook(emp.id)}>
-                    dodaj
-                  </button>
-                </td>
-                <td class="out">
-                  {pln(cashMonth[emp.id] ?? 0)} / {pln(nbMonth[emp.id] ?? 0)} zł
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+
+      <div class="cards">
+        {employees.map((emp) => (
+          <div class="empcard" key={emp.id}>
+            <div class="cardhead">
+              <span class="empname">{emp.display_name}</span>
+              <label class="hours">
+                godziny (≤{MAX_HOURS}):{' '}
+                <input
+                  class="fld hours-in"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="0"
+                  value={hours[emp.id] ?? ''}
+                  onBlur={(e) => saveHours(emp.id, (e.target as HTMLInputElement).value)}
+                />
+              </label>
+            </div>
+            {section('cash', emp, ledger, 'Gotówka')}
+            {section('nb', emp, notebook, 'Zeszyt (pakiet / voucher)')}
+          </div>
+        ))}
       </div>
-      <p class="muted small" style="margin-top:.8rem">
-        Godziny zapisują się po wyjściu z pola (jeden wpis na dzień). Gotówka i zeszyt to osobne
-        wpisy — każdy „dodaj" to jedna kwota. <b>Zeszyt</b> = wizyta opłacona z góry (pakiet/voucher),
-        Booksy rozliczy ją na 0 zł, ale prowizję dostaje wykonawczyni. Sumy trafiają do rozliczenia po
-        „Zassij wszystko".
+
+      <p class="muted small" style="margin-top:1rem">
+        Godziny zapisują się po wyjściu z pola (jeden wpis na dzień, max {MAX_HOURS}). Gotówka i zeszyt
+        to osobne wpisy — błędny usuń i dodaj poprawny. <b>Zeszyt</b> = wizyta opłacona z góry, Booksy
+        rozliczy ją na 0 zł, ale prowizję dostaje wykonawczyni. Sumy trafiają do rozliczenia po „Zassij
+        wszystko".
       </p>
     </div>
   );

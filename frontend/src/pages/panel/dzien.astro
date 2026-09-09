@@ -52,16 +52,26 @@ import DailyEntry from '../../components/DailyEntry.tsx';
       .mini { font: inherit; font-size: .74rem; font-weight: 600; color: var(--accent); background: var(--card); border: 1px solid var(--line2); border-radius: 6px; padding: .3rem .5rem; margin-left: .4rem; cursor: pointer; }
       .gate { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 1.5rem; display: flex; flex-direction: column; gap: .7rem; align-items: flex-start; max-width: 32rem; }
       .err { background: var(--err-soft); color: var(--err); border-radius: 8px; padding: .6rem .8rem; margin-bottom: .8rem; font-size: .88rem; }
-      .scroll { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
-      table { border-collapse: collapse; width: 100%; min-width: 620px; font-variant-numeric: tabular-nums; }
-      th, td { padding: .55rem .7rem; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
-      th { font-size: .68rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
-      th:first-child, td:first-child { text-align: left; }
-      td.name { font-weight: 600; }
-      td.out { color: var(--muted); }
-      input.cell { width: 6rem; text-align: right; font: inherit; font-size: .88rem; background: var(--field); border: 1px solid var(--line); border-radius: 6px; padding: .3rem .4rem; color: var(--ink); }
-      input.cell.narrow { width: 4.4rem; }
-      input.cell.name-in { width: 7rem; text-align: left; margin-right: .3rem; }
+      /* card-per-employee layout — stacks on any width, no wide table */
+      .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
+      .empcard { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 1rem 1.1rem; }
+      .cardhead { display: flex; align-items: baseline; justify-content: space-between; gap: .6rem; flex-wrap: wrap; padding-bottom: .7rem; border-bottom: 1px solid var(--line); margin-bottom: .7rem; }
+      .empname { font-weight: 700; font-size: 1.02rem; }
+      .hours { font-size: .8rem; color: var(--muted); }
+      .fld { font: inherit; font-size: .88rem; background: var(--field); border: 1px solid var(--line); border-radius: 6px; padding: .32rem .45rem; color: var(--ink); }
+      .hours-in { width: 3.4rem; text-align: right; font-variant-numeric: tabular-nums; }
+      .sect { margin-top: .8rem; }
+      .secthead { display: flex; justify-content: space-between; align-items: baseline; font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--accent); }
+      .secthead .sum { color: var(--muted); font-weight: 600; text-transform: none; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+      ul.entries { list-style: none; margin: .5rem 0; padding: 0; display: flex; flex-direction: column; gap: .3rem; }
+      ul.entries li { display: flex; align-items: center; gap: .5rem; font-size: .86rem; }
+      ul.entries .svc { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      ul.entries .amt { font-variant-numeric: tabular-nums; font-weight: 600; }
+      .del { font: inherit; font-size: .72rem; color: var(--err); background: var(--err-soft); border: none; border-radius: 5px; padding: .18rem .45rem; cursor: pointer; }
+      .addrow { display: flex; gap: .35rem; margin-top: .5rem; }
+      .svc-in { flex: 1; min-width: 0; }
+      .amt-in { width: 4.6rem; text-align: right; font-variant-numeric: tabular-nums; }
+      .btn.small { font-size: .78rem; padding: .32rem .6rem; }
       :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
     </style>
   </body>
