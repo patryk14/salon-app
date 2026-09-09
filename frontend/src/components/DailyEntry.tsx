@@ -40,9 +40,13 @@ export default function DailyEntry() {
   const [cashMonth, setCashMonth] = useState<Record<number, number>>({});
   const [nbMonth, setNbMonth] = useState<Record<number, number>>({});
   const [cashDraft, setCashDraft] = useState<Record<number, string>>({});
+  const [cashName, setCashName] = useState<Record<number, string>>({});
   const [nbAmount, setNbAmount] = useState<Record<number, string>>({});
   const [nbName, setNbName] = useState<Record<number, string>>({});
+  const [services, setServices] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  const MAX_HOURS = 11;
 
   useEffect(() => {
     (async () => {
@@ -56,13 +60,15 @@ export default function DailyEntry() {
     setError(null);
     const month = day.slice(0, 7);
     try {
-      const [emps, ts, ledger, nb] = await Promise.all([
+      const [emps, ts, ledger, nb, svc] = await Promise.all([
         apiFetch<Employee[]>('/employees'),
         apiFetch<Timesheet[]>(`/timesheets?month=${month}`),
         apiFetch<Amount[]>(`/ledger?month=${month}`),
         apiFetch<Amount[]>(`/notebook?month=${month}`),
+        apiFetch<string[]>('/services'),
       ]);
       setEmployees(emps.filter((e) => e.is_active));
+      setServices(svc);
 
       const h: Record<number, string> = {};
       ts.filter((t) => t.work_date === day).forEach((t) => (h[t.employee_id] = t.hours));
@@ -85,6 +91,12 @@ export default function DailyEntry() {
   }, [ready, isAdmin, day]);
 
   async function saveHours(empId: number, value: string) {
+    if (value !== '' && Number(value) > MAX_HOURS) {
+      setError(`Maksymalnie ${MAX_HOURS} godzin na dzień — sprawdź wpis.`);
+      await load(); // reset the field to the stored value
+      return;
+    }
+    setError(null);
     try {
       await apiFetch('/timesheets', {
         method: 'POST',
@@ -101,13 +113,24 @@ export default function DailyEntry() {
 
   async function addCash(empId: number) {
     const amount = cashDraft[empId];
+    const name = cashName[empId];
     if (!amount || Number(amount) <= 0) return;
+    if (!name || !name.trim()) {
+      setError('Podaj rodzaj usługi dla wpisu gotówkowego.');
+      return;
+    }
     try {
       await apiFetch('/ledger', {
         method: 'POST',
-        body: JSON.stringify({ employee_id: empId, entry_date: day, amount_pln: amount }),
+        body: JSON.stringify({
+          employee_id: empId,
+          entry_date: day,
+          service_name: name,
+          amount_pln: amount,
+        }),
       });
       setCashDraft((d) => ({ ...d, [empId]: '' }));
+      setCashName((d) => ({ ...d, [empId]: '' }));
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -169,12 +192,17 @@ export default function DailyEntry() {
       {employees.length === 0 && !error && (
         <p class="muted">Budzimy serwer i wczytujemy dane… (do ~15 s po dłuższej przerwie)</p>
       )}
+      <datalist id="booksy-services">
+        {services.map((s) => (
+          <option key={s} value={s} />
+        ))}
+      </datalist>
       <div class="scroll">
         <table>
           <thead>
             <tr>
               <th>Pracownica</th>
-              <th>Godziny</th>
+              <th>Godziny (≤ {MAX_HOURS})</th>
               <th>Gotówka — dodaj</th>
               <th>Zeszyt (pakiet) — dodaj</th>
               <th>Gotówka / zeszyt (mies.)</th>
@@ -186,7 +214,7 @@ export default function DailyEntry() {
                 <td class="name">{emp.display_name}</td>
                 <td>
                   <input
-                    class="cell"
+                    class="cell narrow"
                     type="text"
                     inputMode="decimal"
                     placeholder="0"
@@ -195,6 +223,16 @@ export default function DailyEntry() {
                   />
                 </td>
                 <td>
+                  <input
+                    class="cell name-in"
+                    type="text"
+                    list="booksy-services"
+                    placeholder="usługa"
+                    value={cashName[emp.id] ?? ''}
+                    onInput={(e) =>
+                      setCashName((d) => ({ ...d, [emp.id]: (e.target as HTMLInputElement).value }))
+                    }
+                  />
                   <input
                     class="cell narrow"
                     type="text"
@@ -213,6 +251,7 @@ export default function DailyEntry() {
                   <input
                     class="cell name-in"
                     type="text"
+                    list="booksy-services"
                     placeholder="usługa"
                     value={nbName[emp.id] ?? ''}
                     onInput={(e) =>
