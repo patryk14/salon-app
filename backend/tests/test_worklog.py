@@ -269,3 +269,20 @@ def test_services_catalog_from_booksy_visits(db_client: TestClient) -> None:
     _visit(db_client, "Karolina", "2026-09-05", "100")  # service "Usługa" (from _visit helper)
     catalog = db_client.get("/services").json()
     assert "Usługa" in catalog
+
+
+def test_visits_browser_lists_pulled_visits(db_client: TestClient) -> None:
+    db_client.post("/employees", json={"display_name": "Karola", "aliases": ["Karolina"]})
+    _visit(db_client, "Karolina", "2026-09-05", "250")
+    _visit(db_client, "Karolina", "2026-08-05", "100")
+
+    all_v = db_client.get("/visits").json()
+    assert all_v["total"] == 2
+    assert all_v["items"][0]["client_name"] == "Klientka X"  # newest first (Sept)
+    assert all_v["items"][0]["staff_name"] == "Karolina"
+
+    sept = db_client.get("/visits", params={"month": "2026-09"}).json()
+    assert sept["total"] == 1
+
+    hit = db_client.get("/visits", params={"q": "Karolina"}).json()
+    assert hit["total"] == 2

@@ -19,6 +19,7 @@ from app.schemas import (
     ClientOut,
     ClientUpdate,
     Page,
+    VisitBrowseOut,
     VisitCreate,
     VisitOut,
     VisitUpdate,
@@ -115,6 +116,50 @@ def create_visit(client_id: int, payload: VisitCreate, db: DbDep) -> VisitOut:
     db.add(visit)
     db.flush()
     return VisitOut.model_validate(visit)
+
+
+@visits_router.get("")
+def list_visits(
+    db: DbDep,
+    month: Annotated[str | None, Query(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")] = None,
+    q: str | None = Query(default=None, max_length=100, description="search client/service/staff"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> Page[VisitBrowseOut]:
+    """Browse the imported/pulled visits, newest first, with the client name."""
+    # `+` on string columns → the `||` concat operator on both SQLite and Postgres
+    # (func.concat would emit CONCAT(), which SQLite lacks).
+    name = Client.first_name + " " + Client.last_name
+    base = select(Visit, name.label("client_name")).join(Client, Visit.client_id == Client.id)
+    if month:
+        year, mon = (int(p) for p in month.split("-"))
+        start = f"{year:04d}-{mon:02d}-01"
+        end = f"{year + 1:04d}-01-01" if mon == 12 else f"{year:04d}-{mon + 1:02d}-01"
+        base = base.where(Visit.starts_at >= start, Visit.starts_at < end)
+    if q:
+        pattern = f"%{q}%"
+        base = base.where(
+            or_(
+                name.ilike(pattern),
+                Visit.service_name.ilike(pattern),
+                Visit.staff_name.ilike(pattern),
+            )
+        )
+    total = db.scalar(select(func.count()).select_from(base.subquery())) or 0
+    rows = db.execute(base.order_by(Visit.starts_at.desc()).limit(limit).offset(offset)).all()
+    items = [
+        VisitBrowseOut(
+            id=v.id,
+            starts_at=v.starts_at,
+            client_name=client_name,
+            service_name=v.service_name,
+            staff_name=v.staff_name,
+            price_pln=v.price_pln,
+            status=v.status,
+        )
+        for v, client_name in rows
+    ]
+    return Page[VisitBrowseOut](items=items, total=total, limit=limit, offset=offset)
 
 
 @visits_router.patch("/{visit_id}")

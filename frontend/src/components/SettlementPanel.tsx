@@ -223,6 +223,9 @@ export default function SettlementPanel() {
         <a class="btn" href="/panel/dzien">
           Raport dzienny
         </a>
+        <a class="btn" href="/panel/wizyty">
+          Wizyty
+        </a>
         <a class="btn" href="/panel/booksy">
           Synchronizacja Booksy
         </a>

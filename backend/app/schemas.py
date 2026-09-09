@@ -201,6 +201,20 @@ class PeriodReadiness(BaseModel):
     warnings: list[ReadinessWarning]
 
 
+class VisitBrowseOut(BaseModel):
+    """A visit for the admin visits browser — with the client's name joined in."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    starts_at: datetime
+    client_name: str
+    service_name: str
+    staff_name: str | None
+    price_pln: Decimal | None
+    status: str
+
+
 # ---------------------------------------------------------- worklog (F3)
 MAX_HOURS_PER_DAY = 11  # owner rule: nobody logs more than 11 h in a day
 
