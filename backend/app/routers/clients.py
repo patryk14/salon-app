@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import require_role
 from app.deps import get_db
+from app.derivation import month_bounds
 from app.models import Client, Visit
 from app.schemas import (
     ClientCreate,
@@ -132,9 +133,9 @@ def list_visits(
     name = Client.first_name + " " + Client.last_name
     base = select(Visit, name.label("client_name")).join(Client, Visit.client_id == Client.id)
     if month:
-        year, mon = (int(p) for p in month.split("-"))
-        start = f"{year:04d}-{mon:02d}-01"
-        end = f"{year + 1:04d}-01-01" if mon == 12 else f"{year:04d}-{mon + 1:02d}-01"
+        # date bounds, NOT f-string dates: comparing a TIMESTAMP column to a
+        # VARCHAR works on SQLite but 500s on Postgres (operator type mismatch).
+        start, end = month_bounds(month)
         base = base.where(Visit.starts_at >= start, Visit.starts_at < end)
     if q:
         pattern = f"%{q}%"
