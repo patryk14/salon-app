@@ -223,6 +223,9 @@ export default function SettlementPanel() {
         <a class="btn" href="/panel/dzien">
           Raport dzienny
         </a>
+        <a class="btn" href="/panel/booksy">
+          Synchronizacja Booksy
+        </a>
         <span class="spacer" />
         {period && !closed && (
           <button class="btn" disabled={busy} onClick={deriveAll} title="Złóż miesiąc z godzin, gotówki i wizyt Booksy">
