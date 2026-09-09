@@ -147,8 +147,7 @@ def test_derive_all_builds_the_whole_period(db_client: TestClient) -> None:
 
 
 def test_readiness_flags_empty_and_unmatched(db_client: TestClient) -> None:
-    r = db_client.post("/employees", json={"display_name": "Karola", "aliases": ["Karolina"]})
-    karola = r.json()["id"]
+    db_client.post("/employees", json={"display_name": "Karola", "aliases": ["Karolina"]})
     _visit(db_client, "Karolina", "2026-09-05", "13149")
     _visit(db_client, "Nieznana Pracownica", "2026-09-06", "500")  # no alias → unmatched
 
