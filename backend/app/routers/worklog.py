@@ -11,11 +11,10 @@ reflects the current entries, and the "dropped cash" bug class cannot recur.
 """
 
 from datetime import date
-from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.auth import require_role
@@ -115,28 +114,3 @@ def delete_ledger_entry(entry_id: int, db: DbDep) -> None:
     if not db.get(LedgerEntry, entry_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="entry not found")
     db.execute(delete(LedgerEntry).where(LedgerEntry.id == entry_id))
-
-
-# --- rollups (used by the settlement "derive from sources" endpoint) ---------
-def monthly_hours(db: Session, employee_id: int, year_month: str) -> Decimal:
-    start, end = _month_bounds(year_month)
-    total = db.scalar(
-        select(func.coalesce(func.sum(TimesheetEntry.hours), 0)).where(
-            TimesheetEntry.employee_id == employee_id,
-            TimesheetEntry.work_date >= start,
-            TimesheetEntry.work_date < end,
-        )
-    )
-    return Decimal(str(total))
-
-
-def monthly_cash(db: Session, employee_id: int, year_month: str) -> Decimal:
-    start, end = _month_bounds(year_month)
-    total = db.scalar(
-        select(func.coalesce(func.sum(LedgerEntry.amount_pln), 0)).where(
-            LedgerEntry.employee_id == employee_id,
-            LedgerEntry.entry_date >= start,
-            LedgerEntry.entry_date < end,
-        )
-    )
-    return Decimal(str(total))

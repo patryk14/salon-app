@@ -22,6 +22,12 @@ from app.commission import (
     compute_settlement,
 )
 from app.deps import get_db
+from app.derivation import (
+    monthly_booksy_services,
+    monthly_cash,
+    monthly_hours,
+    unmatched_staff_names,
+)
 from app.models import (
     CommissionDecision,
     Employee,
@@ -37,6 +43,8 @@ from app.schemas import (
     EmployeeOut,
     EmployeeUpdate,
     PeriodCreate,
+    PeriodReadiness,
+    ReadinessWarning,
     SettlementInputIn,
     SettlementLineOut,
     SettlementPeriodOut,
@@ -218,38 +226,123 @@ def upsert_line(
     return SettlementLineOut.model_validate(line)
 
 
-@settlement.post("/periods/{year_month}/lines/{employee_id}/derive")
-def derive_line_from_sources(year_month: str, employee_id: int, db: DbDep) -> SettlementLineOut:
-    """Pre-fill this line's hours + cash_services from the month's timesheets and
-    ledger (F3), then recompute. Booksy/notebook figures stay as entered — those
-    come from the Booksy import (F5) and the notebook (F4), not this."""
-    from app.routers.worklog import monthly_cash, monthly_hours
-
-    period = _get_period(db, year_month)
-    if period.status != "draft":
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="period is closed")
-    emp = db.get(Employee, employee_id)
-    if emp is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="employee not found")
-
-    line = db.scalar(
-        select(SettlementLine).where(
-            SettlementLine.period_id == period.id, SettlementLine.employee_id == employee_id
-        )
-    )
-    payload = SettlementInputIn(
-        booksy_services=line.booksy_services if line else Decimal("0"),
+def _derive_payload(db: Session, employee_id: int, year_month: str, line) -> SettlementInputIn:
+    """Assemble a line's inputs from the daily sources. Derived: hours (F3),
+    cash_services (F3), booksy_services (imported visits). NOT derived yet
+    (kept from any manual entry): booksy_sales (products, F5), notebook (F4)."""
+    return SettlementInputIn(
+        booksy_services=monthly_booksy_services(db, employee_id, year_month),
+        cash_services=monthly_cash(db, employee_id, year_month),
+        hours=monthly_hours(db, employee_id, year_month),
+        # not yet derivable — preserve whatever was entered by hand:
         booksy_sales=line.booksy_sales if line else Decimal("0"),
         notebook_services=line.notebook_services if line else Decimal("0"),
         notebook_sales=line.notebook_sales if line else Decimal("0"),
         cash_sales=line.cash_sales if line else Decimal("0"),
         override_total=line.override_total if line else None,
         override_reason=line.override_reason if line else None,
-        # derived from F3 sources:
-        cash_services=monthly_cash(db, employee_id, year_month),
-        hours=monthly_hours(db, employee_id, year_month),
     )
-    return upsert_line(year_month, employee_id, payload, db)
+
+
+@settlement.post("/periods/{year_month}/lines/{employee_id}/derive")
+def derive_line_from_sources(year_month: str, employee_id: int, db: DbDep) -> SettlementLineOut:
+    """Assemble ONE employee's line from the daily sources and recompute."""
+    period = _get_period(db, year_month)
+    if period.status != "draft":
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="period is closed")
+    emp = db.get(Employee, employee_id)
+    if emp is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="employee not found")
+    line = db.scalar(
+        select(SettlementLine).where(
+            SettlementLine.period_id == period.id, SettlementLine.employee_id == employee_id
+        )
+    )
+    return upsert_line(
+        year_month, employee_id, _derive_payload(db, employee_id, year_month, line), db
+    )
+
+
+@settlement.post("/periods/{year_month}/derive-all")
+def derive_all(year_month: str, db: DbDep) -> SettlementPeriodOut:
+    """Assemble the WHOLE period from daily sources in one click — the primary
+    flow. Every ACTIVE employee's line is (re)derived; the monthly panel is
+    built, not typed."""
+    period = _get_period(db, year_month)
+    if period.status != "draft":
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="period is closed")
+    # Materialize first: the loop below runs queries on the same session, which
+    # would invalidate a still-streaming result cursor.
+    active = db.scalars(select(Employee).where(Employee.active_to.is_(None))).all()
+    for emp in active:
+        line = db.scalar(
+            select(SettlementLine).where(
+                SettlementLine.period_id == period.id, SettlementLine.employee_id == emp.id
+            )
+        )
+        upsert_line(year_month, emp.id, _derive_payload(db, emp.id, year_month, line), db)
+    db.flush()
+    # `period.lines` was loaded (empty) before the loop; expire it so serialization
+    # re-reads the lines just written rather than the stale cached collection.
+    db.expire(period, ["lines"])
+    return SettlementPeriodOut.model_validate(period)
+
+
+@settlement.get("/periods/{year_month}/readiness")
+def period_readiness(year_month: str, db: DbDep) -> PeriodReadiness:
+    """Safeguards before closing: what looks incomplete or anomalous. The panel
+    shows these in the close confirmation; the owner decides."""
+    period = _get_period(db, year_month)
+    lines = {line.employee_id: line for line in period.lines}
+    warnings: list[ReadinessWarning] = []
+
+    active = db.scalars(select(Employee).where(Employee.active_to.is_(None))).all()
+    for emp in active:
+        line = lines.get(emp.id)
+        if line is None:
+            warnings.append(
+                ReadinessWarning(
+                    employee=emp.display_name,
+                    kind="no_line",
+                    message="brak wiersza — pracownica nieujęta w rozliczeniu",
+                )
+            )
+            continue
+        svc = Decimal(line.services_base)
+        hours = Decimal(line.hours)
+        if svc == 0 and hours == 0:
+            warnings.append(
+                ReadinessWarning(
+                    employee=emp.display_name,
+                    kind="empty",
+                    message="zero utargu i zero godzin — czy dane zostały zassane?",
+                )
+            )
+        if Decimal(line.services_commission) > 0 and svc == 0:
+            warnings.append(
+                ReadinessWarning(
+                    employee=emp.display_name, kind="anomaly", message="prowizja bez bazy usług"
+                )
+            )
+        if hours > 400:
+            warnings.append(
+                ReadinessWarning(
+                    employee=emp.display_name,
+                    kind="anomaly",
+                    message=f"{hours} godzin w miesiącu — sprawdź",
+                )
+            )
+
+    for name in unmatched_staff_names(db, year_month):
+        warnings.append(
+            ReadinessWarning(
+                employee=name,
+                kind="unmatched_staff",
+                message="nazwisko z Booksy bez dopasowanego aliasu — przychód gubiony",
+            )
+        )
+
+    return PeriodReadiness(year_month=year_month, ok=len(warnings) == 0, warnings=warnings)
 
 
 @settlement.post("/periods/{year_month}/close")

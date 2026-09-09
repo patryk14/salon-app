@@ -189,6 +189,18 @@ class DecisionOut(BaseModel):
     decided_by: str
 
 
+class ReadinessWarning(BaseModel):
+    employee: str
+    kind: str  # no_line | empty | anomaly | unmatched_staff
+    message: str
+
+
+class PeriodReadiness(BaseModel):
+    year_month: str
+    ok: bool
+    warnings: list[ReadinessWarning]
+
+
 # ---------------------------------------------------------- worklog (F3)
 class TimesheetCreate(BaseModel):
     employee_id: int
