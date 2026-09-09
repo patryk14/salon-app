@@ -72,15 +72,17 @@ export default function SettlementPanel() {
   async function loadData() {
     setError(null);
     try {
-      const emps = await apiFetch<Employee[]>('/employees');
+      // Both hit Aurora; fire them together so the ~15 s cold-start (min-0-ACU
+      // resume) is paid once, not twice.
+      const [emps, p] = await Promise.all([
+        apiFetch<Employee[]>('/employees'),
+        apiFetch<Period>(`/settlement/periods/${ym}`).catch((e) => {
+          if (e instanceof ApiError && e.status === 404) return null;
+          throw e;
+        }),
+      ]);
       setEmployees(emps.filter((e) => e.is_active));
-      try {
-        const p = await apiFetch<Period>(`/settlement/periods/${ym}`);
-        setPeriod(p);
-      } catch (e) {
-        if (e instanceof ApiError && e.status === 404) setPeriod(null);
-        else throw e;
-      }
+      setPeriod(p);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -239,7 +241,9 @@ export default function SettlementPanel() {
 
       {error && <div class="err">Błąd: {error}</div>}
 
-      {employees.length === 0 && !error && <p class="muted">Wczytywanie pracownic…</p>}
+      {employees.length === 0 && !error && (
+        <p class="muted">Budzimy serwer i wczytujemy dane… (do ~15 s po dłuższej przerwie)</p>
+      )}
 
       {!period && employees.length > 0 && (
         <div class="banner">
