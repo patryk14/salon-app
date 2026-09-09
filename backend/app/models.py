@@ -247,6 +247,9 @@ class LedgerEntry(TimestampMixin, Base):
         ForeignKey("employees.id", ondelete="CASCADE"), nullable=False
     )
     entry_date: Mapped[date] = mapped_column(Date, nullable=False)
+    # Which service the cash was for — recorded like a notebook entry. Chosen
+    # from the Booksy service catalog (normalized), so it matches real services.
+    service_name: Mapped[str | None] = mapped_column(String(200))
     amount_pln: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     note: Mapped[str | None] = mapped_column(Text)
 

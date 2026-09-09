@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import require_role
 from app.deps import get_db
-from app.models import LedgerEntry, NotebookEntry, TimesheetEntry
+from app.models import LedgerEntry, NotebookEntry, TimesheetEntry, Visit
 from app.schemas import (
     LedgerCreate,
     LedgerOut,
@@ -34,6 +34,23 @@ DbDep = Annotated[Session, Depends(get_db)]
 timesheets = APIRouter(prefix="/timesheets", tags=["worklog"], dependencies=[require_role("admin")])
 ledger = APIRouter(prefix="/ledger", tags=["worklog"], dependencies=[require_role("admin")])
 notebook = APIRouter(prefix="/notebook", tags=["worklog"], dependencies=[require_role("admin")])
+services = APIRouter(prefix="/services", tags=["catalog"], dependencies=[require_role("admin")])
+
+
+def _norm_service(name: str) -> str:
+    """Normalize a service name: trim and collapse internal whitespace, so
+    'Peeling  chemiczny ' and 'Peeling chemiczny' are the same catalog entry."""
+    return " ".join(name.split())
+
+
+@services.get("")
+def list_services(db: DbDep) -> list[str]:
+    """The Booksy service catalog: distinct service names from imported visits.
+    Feeds the daily-report dropdowns so cash/notebook entries match real services."""
+    rows = db.scalars(
+        select(Visit.service_name).where(Visit.service_name.is_not(None)).distinct()
+    ).all()
+    return sorted({_norm_service(s) for s in rows if s})
 
 
 def _month_bounds(year_month: str) -> tuple[date, date]:
@@ -90,7 +107,9 @@ def delete_timesheet(entry_id: int, db: DbDep) -> None:
 # ---------------------------------------------------------------------- ledger
 @ledger.post("", status_code=status.HTTP_201_CREATED)
 def add_ledger_entry(payload: LedgerCreate, db: DbDep) -> LedgerOut:
-    row = LedgerEntry(**payload.model_dump())
+    data = payload.model_dump()
+    data["service_name"] = _norm_service(data["service_name"])
+    row = LedgerEntry(**data)
     db.add(row)
     db.flush()
     return LedgerOut.model_validate(row)
@@ -124,7 +143,9 @@ def delete_ledger_entry(entry_id: int, db: DbDep) -> None:
 def add_notebook_entry(payload: NotebookCreate, db: DbDep) -> NotebookOut:
     """A prepaid (package/voucher) visit performed — Booksy settled it at 0, but
     the performer earns commission on the package value now."""
-    row = NotebookEntry(**payload.model_dump())
+    data = payload.model_dump()
+    data["service_name"] = _norm_service(data["service_name"])
+    row = NotebookEntry(**data)
     db.add(row)
     db.flush()
     return NotebookOut.model_validate(row)

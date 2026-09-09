@@ -32,7 +32,13 @@ def test_ledger_accumulates_per_month(db_client: TestClient) -> None:
     e = _emp(db_client, "Oliwia")
     for amt in ("100.50", "200", "50.50"):
         db_client.post(
-            "/ledger", json={"employee_id": e, "entry_date": "2026-09-10", "amount_pln": amt}
+            "/ledger",
+            json={
+                "employee_id": e,
+                "entry_date": "2026-09-10",
+                "service_name": "Manicure",
+                "amount_pln": amt,
+            },
         )
     rows = db_client.get("/ledger", params={"employee_id": e, "month": "2026-09"}).json()
     assert len(rows) == 3  # multiple cash entries per day allowed
@@ -114,7 +120,13 @@ def test_derive_assembles_all_three_sources(db_client: TestClient) -> None:
         db_client.post("/timesheets", json={"employee_id": e, "work_date": day, "hours": h})
     for amt in ("600", "35"):
         db_client.post(
-            "/ledger", json={"employee_id": e, "entry_date": "2026-09-04", "amount_pln": amt}
+            "/ledger",
+            json={
+                "employee_id": e,
+                "entry_date": "2026-09-04",
+                "service_name": "Peeling",
+                "amount_pln": amt,
+            },
         )
 
     db_client.post("/settlement/periods", json={"year_month": "2026-09"})
@@ -223,3 +235,37 @@ def test_notebook_with_matching_visit_is_not_flagged(db_client: TestClient) -> N
     db_client.post("/settlement/periods/2026-09/derive-all")
     rd = db_client.get("/settlement/periods/2026-09/readiness").json()
     assert not any(w["kind"] == "notebook_no_visit" for w in rd["warnings"])
+
+
+def test_hours_cap_at_11(db_client: TestClient) -> None:
+    e = _emp(db_client, "Klaudia")
+    ok = db_client.post(
+        "/timesheets", json={"employee_id": e, "work_date": "2026-09-01", "hours": "11"}
+    )
+    assert ok.status_code == 201
+    too_much = db_client.post(
+        "/timesheets", json={"employee_id": e, "work_date": "2026-09-02", "hours": "12"}
+    )
+    assert too_much.status_code == 422  # owner safeguard: max 11 h/day
+
+
+def test_cash_carries_service_name(db_client: TestClient) -> None:
+    e = _emp(db_client, "Oliwia")
+    r = db_client.post(
+        "/ledger",
+        json={
+            "employee_id": e,
+            "entry_date": "2026-09-10",
+            "service_name": "  Peeling   kawitacyjny ",
+            "amount_pln": "150",
+        },
+    )
+    assert r.status_code == 201
+    assert r.json()["service_name"] == "Peeling kawitacyjny"  # normalized (trim + collapse)
+
+
+def test_services_catalog_from_booksy_visits(db_client: TestClient) -> None:
+    db_client.post("/employees", json={"display_name": "Karola", "aliases": ["Karolina"]})
+    _visit(db_client, "Karolina", "2026-09-05", "100")  # service "Usługa" (from _visit helper)
+    catalog = db_client.get("/services").json()
+    assert "Usługa" in catalog

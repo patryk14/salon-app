@@ -202,10 +202,14 @@ class PeriodReadiness(BaseModel):
 
 
 # ---------------------------------------------------------- worklog (F3)
+MAX_HOURS_PER_DAY = 11  # owner rule: nobody logs more than 11 h in a day
+
+
 class TimesheetCreate(BaseModel):
     employee_id: int
     work_date: date
-    hours: Decimal = Field(ge=0, le=24, max_digits=5, decimal_places=2)
+    # Cap at 11 h/day (owner safeguard) — a bigger number is a typo or padding.
+    hours: Decimal = Field(ge=0, le=MAX_HOURS_PER_DAY, max_digits=5, decimal_places=2)
     note: str | None = None
 
 
@@ -222,6 +226,7 @@ class TimesheetOut(BaseModel):
 class LedgerCreate(BaseModel):
     employee_id: int
     entry_date: date
+    service_name: str = Field(min_length=1, max_length=200)
     amount_pln: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
     note: str | None = None
 
@@ -232,6 +237,7 @@ class LedgerOut(BaseModel):
     id: int
     employee_id: int
     entry_date: date
+    service_name: str | None
     amount_pln: Decimal
     note: str | None
 
