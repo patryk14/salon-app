@@ -10,14 +10,14 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth import require_role
 from app.booksy import BooksyParseError, VisitRow, parse_visits_report, split_name
 from app.deps import get_db
-from app.models import Client, Visit
+from app.models import BooksyCredential, Client, Visit
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,20 @@ class ImportSummary(BaseModel):
     clients_created: int
     visits_created: int
     visits_updated: int
+
+
+class BooksyCredentialsIn(BaseModel):
+    business_id: str = Field(default="221497", max_length=20)
+    access_token: str = Field(min_length=1, max_length=200)
+    api_key: str = Field(min_length=1, max_length=200)
+    fingerprint: str = Field(min_length=1, max_length=200)
+
+
+class PullRequest(BaseModel):
+    # report_key identifies WHICH Booksy report to download (the visits list).
+    report_key: str = Field(min_length=1, max_length=100)
+    date_from: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    date_till: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
 
 
 def _client_for(db: Session, cache: dict[str, Client], name: str) -> tuple[Client, bool]:
@@ -76,16 +90,9 @@ def _upsert_visit(db: Session, client: Client, row: VisitRow) -> bool:
     return False
 
 
-@router.post("/booksy/visits", status_code=status.HTTP_200_OK)
-def import_booksy_visits(
-    db: Annotated[Session, Depends(get_db)],
-    file: Annotated[UploadFile, File(description="Booksy Biz 'Lista wizyt' xlsx export")],
-) -> ImportSummary:
-    try:
-        rows = parse_visits_report(file.file)
-    except BooksyParseError as e:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
-
+def import_visit_rows(db: Session, rows: list[VisitRow]) -> ImportSummary:
+    """Upsert parsed visit rows — the shared core of both the xlsx upload and the
+    automatic pull (F5). Idempotent on booksy_ref."""
     cache: dict[str, Client] = {}
     clients_created = visits_created = visits_updated = 0
     for row in rows:
@@ -104,3 +111,47 @@ def import_booksy_visits(
     )
     logger.info("booksy import: %s", summary.model_dump())
     return summary
+
+
+@router.post("/booksy/visits", status_code=status.HTTP_200_OK)
+def import_booksy_visits(
+    db: Annotated[Session, Depends(get_db)],
+    file: Annotated[UploadFile, File(description="Booksy Biz 'Lista wizyt' xlsx export")],
+) -> ImportSummary:
+    try:
+        rows = parse_visits_report(file.file)
+    except BooksyParseError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
+    return import_visit_rows(db, rows)
+
+
+@router.put("/booksy/credentials", status_code=status.HTTP_204_NO_CONTENT)
+def set_booksy_credentials(
+    payload: BooksyCredentialsIn, db: Annotated[Session, Depends(get_db)]
+) -> None:
+    """Store/refresh the Booksy session credentials for the automatic pull. The
+    access token rotates — the owner pastes a fresh one here, no redeploy."""
+    row = db.scalars(select(BooksyCredential).order_by(BooksyCredential.id).limit(1)).first()
+    if row is None:
+        row = BooksyCredential(id=1)
+        db.add(row)
+    row.business_id = payload.business_id
+    row.access_token = payload.access_token
+    row.api_key = payload.api_key
+    row.fingerprint = payload.fingerprint
+
+
+@router.post("/booksy/pull", status_code=status.HTTP_200_OK)
+def pull_booksy_visits(
+    payload: PullRequest, db: Annotated[Session, Depends(get_db)]
+) -> ImportSummary:
+    """Download the visits report for a date range straight from Booksy and
+    upsert it — automation of the manual xlsx upload."""
+    from app.booksy_api import BooksyAuthError, pull_visits  # lazy: avoids import cycle
+
+    try:
+        return pull_visits(db, payload.report_key, payload.date_from, payload.date_till)
+    except BooksyAuthError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
+    except BooksyParseError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e

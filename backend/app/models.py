@@ -278,3 +278,21 @@ class NotebookEntry(TimestampMixin, Base):
     note: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (Index("ix_notebook_employee_date", "employee_id", "entry_date"),)
+
+
+class BooksyCredential(TimestampMixin, Base):
+    """Booksy internal-API session credentials for the automatic pull (F5).
+
+    Single row (id=1). The access token rotates (~daily), so the owner refreshes
+    it via an admin endpoint rather than a redeploy. DEV POSTURE (documented
+    like the public DB endpoint): a session token that reaches client PII sits
+    in the private DB in plaintext — acceptable for dev, moves to Secrets
+    Manager / SSM SecureString at the production gate."""
+
+    __tablename__ = "booksy_credentials"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    business_id: Mapped[str] = mapped_column(String(20))
+    access_token: Mapped[str] = mapped_column(String(200))
+    api_key: Mapped[str] = mapped_column(String(200))
+    fingerprint: Mapped[str] = mapped_column(String(200))
