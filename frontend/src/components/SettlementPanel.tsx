@@ -31,6 +31,10 @@ interface Period {
   status: string;
   lines: Line[];
 }
+interface Readiness {
+  ok: boolean;
+  warnings: { employee: string; kind: string; message: string }[];
+}
 
 const INPUT_FIELDS = [
   ['booksy_services', 'Booksy usł.'],
@@ -145,9 +149,35 @@ export default function SettlementPanel() {
     }
   }
 
+  async function deriveAll() {
+    setBusy(true);
+    setError(null);
+    try {
+      const p = await apiFetch<Period>(`/settlement/periods/${ym}/derive-all`, { method: 'POST' });
+      setPeriod(p);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function closePeriod() {
     setBusy(true);
+    setError(null);
     try {
+      // Safeguard: surface completeness/anomaly warnings before the (final) close.
+      const rd = await apiFetch<Readiness>(`/settlement/periods/${ym}/readiness`);
+      if (rd.warnings.length > 0) {
+        const list = rd.warnings.map((w) => `• ${w.employee}: ${w.message}`).join('\n');
+        const proceed = window.confirm(
+          `Znaleziono ${rd.warnings.length} ostrzeżeń:\n\n${list}\n\nZamknąć okres mimo to? (zamknięcia nie da się cofnąć)`,
+        );
+        if (!proceed) {
+          setBusy(false);
+          return;
+        }
+      }
       const p = await apiFetch<Period>(`/settlement/periods/${ym}/close`, { method: 'POST' });
       setPeriod(p);
     } catch (e) {
@@ -188,7 +218,15 @@ export default function SettlementPanel() {
         {period && (
           <span class={`badge ${closed ? 'closed' : 'draft'}`}>{closed ? 'Zamknięty' : 'Szkic'}</span>
         )}
+        <a class="btn" href="/panel/dzien">
+          Raport dzienny
+        </a>
         <span class="spacer" />
+        {period && !closed && (
+          <button class="btn" disabled={busy} onClick={deriveAll} title="Złóż miesiąc z godzin, gotówki i wizyt Booksy">
+            Zassij wszystko z ewidencji
+          </button>
+        )}
         {period && !closed && (
           <button class="btn primary" disabled={busy} onClick={closePeriod}>
             Zamknij okres
