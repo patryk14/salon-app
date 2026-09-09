@@ -53,4 +53,5 @@ def create_app() -> FastAPI:
     app.include_router(settlement.decisions)
     app.include_router(worklog.timesheets)
     app.include_router(worklog.ledger)
+    app.include_router(worklog.notebook)
     return app

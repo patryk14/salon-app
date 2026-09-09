@@ -26,6 +26,8 @@ from app.derivation import (
     monthly_booksy_services,
     monthly_cash,
     monthly_hours,
+    monthly_notebook_services,
+    reconcile_notebook,
     unmatched_staff_names,
 )
 from app.models import (
@@ -233,10 +235,10 @@ def _derive_payload(db: Session, employee_id: int, year_month: str, line) -> Set
     return SettlementInputIn(
         booksy_services=monthly_booksy_services(db, employee_id, year_month),
         cash_services=monthly_cash(db, employee_id, year_month),
+        notebook_services=monthly_notebook_services(db, employee_id, year_month),
         hours=monthly_hours(db, employee_id, year_month),
         # not yet derivable — preserve whatever was entered by hand:
         booksy_sales=line.booksy_sales if line else Decimal("0"),
-        notebook_services=line.notebook_services if line else Decimal("0"),
         notebook_sales=line.notebook_sales if line else Decimal("0"),
         cash_sales=line.cash_sales if line else Decimal("0"),
         override_total=line.override_total if line else None,
@@ -339,6 +341,16 @@ def period_readiness(year_month: str, db: DbDep) -> PeriodReadiness:
                 employee=name,
                 kind="unmatched_staff",
                 message="nazwisko z Booksy bez dopasowanego aliasu — przychód gubiony",
+            )
+        )
+
+    # Anti-fraud: a notebook (prepaid) entry with no matching Booksy visit.
+    for u in reconcile_notebook(db, year_month):
+        warnings.append(
+            ReadinessWarning(
+                employee=u.employee,
+                kind="notebook_no_visit",
+                message=f"zeszyt {u.entry_date} ({u.amount_pln} zł) — brak wizyty w Booksy",
             )
         )
 

@@ -165,3 +165,61 @@ def test_worklog_endpoints_require_admin(auth_client: TestClient, mint_token) ->
     staff = {"Authorization": f"Bearer {mint_token(groups=['staff'])}"}
     assert auth_client.get("/timesheets", headers=staff).status_code == 403
     assert auth_client.get("/ledger", headers=staff).status_code == 403
+
+
+def test_notebook_feeds_services_base_via_derive(db_client: TestClient) -> None:
+    r = db_client.post("/employees", json={"display_name": "Oliwia", "aliases": ["Oliwia"]})
+    e = r.json()["id"]
+    # a prepaid visit worth 300 performed on the 10th; Booksy has it (settled 0)
+    _visit(db_client, "Oliwia", "2026-09-10", "0")
+    db_client.post(
+        "/notebook",
+        json={
+            "employee_id": e,
+            "entry_date": "2026-09-10",
+            "service_name": "Pakiet 5x",
+            "amount_pln": "300",
+        },
+    )
+    db_client.post("/settlement/periods", json={"year_month": "2026-09"})
+    line = db_client.post(f"/settlement/periods/2026-09/lines/{e}/derive").json()
+    assert money(line["notebook_services"]) == money("300")  # DERIVED from the notebook
+    assert money(line["services_base"]) == money("300")
+
+
+def test_readiness_flags_notebook_without_booksy_visit(db_client: TestClient) -> None:
+    r = db_client.post("/employees", json={"display_name": "Hania", "aliases": ["Hanna"]})
+    e = r.json()["id"]
+    # notebook entry on a day with NO matching Booksy visit → fraud flag
+    db_client.post(
+        "/notebook",
+        json={
+            "employee_id": e,
+            "entry_date": "2026-09-15",
+            "service_name": "Zabieg",
+            "amount_pln": "200",
+        },
+    )
+    db_client.post("/settlement/periods", json={"year_month": "2026-09"})
+    db_client.post("/settlement/periods/2026-09/derive-all")
+    rd = db_client.get("/settlement/periods/2026-09/readiness").json()
+    assert any(w["kind"] == "notebook_no_visit" for w in rd["warnings"])
+
+
+def test_notebook_with_matching_visit_is_not_flagged(db_client: TestClient) -> None:
+    r = db_client.post("/employees", json={"display_name": "Hania", "aliases": ["Hanna"]})
+    e = r.json()["id"]
+    _visit(db_client, "Hanna", "2026-09-15", "0")  # Booksy has the prepaid visit
+    db_client.post(
+        "/notebook",
+        json={
+            "employee_id": e,
+            "entry_date": "2026-09-15",
+            "service_name": "Zabieg",
+            "amount_pln": "200",
+        },
+    )
+    db_client.post("/settlement/periods", json={"year_month": "2026-09"})
+    db_client.post("/settlement/periods/2026-09/derive-all")
+    rd = db_client.get("/settlement/periods/2026-09/readiness").json()
+    assert not any(w["kind"] == "notebook_no_visit" for w in rd["warnings"])

@@ -19,10 +19,12 @@ from sqlalchemy.orm import Session
 
 from app.auth import require_role
 from app.deps import get_db
-from app.models import LedgerEntry, TimesheetEntry
+from app.models import LedgerEntry, NotebookEntry, TimesheetEntry
 from app.schemas import (
     LedgerCreate,
     LedgerOut,
+    NotebookCreate,
+    NotebookOut,
     TimesheetCreate,
     TimesheetOut,
 )
@@ -31,6 +33,7 @@ DbDep = Annotated[Session, Depends(get_db)]
 
 timesheets = APIRouter(prefix="/timesheets", tags=["worklog"], dependencies=[require_role("admin")])
 ledger = APIRouter(prefix="/ledger", tags=["worklog"], dependencies=[require_role("admin")])
+notebook = APIRouter(prefix="/notebook", tags=["worklog"], dependencies=[require_role("admin")])
 
 
 def _month_bounds(year_month: str) -> tuple[date, date]:
@@ -114,3 +117,37 @@ def delete_ledger_entry(entry_id: int, db: DbDep) -> None:
     if not db.get(LedgerEntry, entry_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="entry not found")
     db.execute(delete(LedgerEntry).where(LedgerEntry.id == entry_id))
+
+
+# ------------------------------------------------------------------- notebook
+@notebook.post("", status_code=status.HTTP_201_CREATED)
+def add_notebook_entry(payload: NotebookCreate, db: DbDep) -> NotebookOut:
+    """A prepaid (package/voucher) visit performed — Booksy settled it at 0, but
+    the performer earns commission on the package value now."""
+    row = NotebookEntry(**payload.model_dump())
+    db.add(row)
+    db.flush()
+    return NotebookOut.model_validate(row)
+
+
+@notebook.get("")
+def list_notebook(
+    db: DbDep,
+    employee_id: int | None = None,
+    month: Annotated[str | None, Query(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")] = None,
+) -> list[NotebookOut]:
+    q = select(NotebookEntry)
+    if employee_id is not None:
+        q = q.where(NotebookEntry.employee_id == employee_id)
+    if month is not None:
+        start, end = _month_bounds(month)
+        q = q.where(NotebookEntry.entry_date >= start, NotebookEntry.entry_date < end)
+    rows = db.scalars(q.order_by(NotebookEntry.entry_date)).all()
+    return [NotebookOut.model_validate(r) for r in rows]
+
+
+@notebook.delete("/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_notebook_entry(entry_id: int, db: DbDep) -> None:
+    if not db.get(NotebookEntry, entry_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="entry not found")
+    db.execute(delete(NotebookEntry).where(NotebookEntry.id == entry_id))

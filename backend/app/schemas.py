@@ -243,3 +243,22 @@ class DerivedSources(BaseModel):
     employee_id: int
     hours: Decimal
     cash_services: Decimal
+
+
+class NotebookCreate(BaseModel):
+    employee_id: int
+    entry_date: date
+    service_name: str = Field(min_length=1, max_length=200)
+    amount_pln: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
+    note: str | None = None
+
+
+class NotebookOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    employee_id: int
+    entry_date: date
+    service_name: str
+    amount_pln: Decimal
+    note: str | None

@@ -251,3 +251,27 @@ class LedgerEntry(TimestampMixin, Base):
     note: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (Index("ix_ledger_employee_date", "employee_id", "entry_date"),)
+
+
+class NotebookEntry(TimestampMixin, Base):
+    """A PREPAID visit (package/voucher) performed. The client paid earlier, so
+    Booksy settles it at 0 PLN — but the performer earns commission NOW, on the
+    package value. Digitizes the paper notebook. Summed per month → the
+    settlement's `notebook_services` (part of the services commission base).
+
+    Every real visit is in Booksy, so a notebook entry MUST have a matching
+    Booksy visit for that employee+day (see derivation.reconcile_notebook) —
+    an entry with no backing visit is a red flag (invented work)."""
+
+    __tablename__ = "notebook_entries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(
+        ForeignKey("employees.id", ondelete="CASCADE"), nullable=False
+    )
+    entry_date: Mapped[date] = mapped_column(Date, nullable=False)
+    service_name: Mapped[str] = mapped_column(String(200))
+    amount_pln: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (Index("ix_notebook_employee_date", "employee_id", "entry_date"),)

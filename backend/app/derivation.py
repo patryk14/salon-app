@@ -9,13 +9,14 @@ booksy_sales (products) and notebook packages are not derived here yet — produ
 imports (F5) and the notebook (F4) come later; until then they stay manual.
 """
 
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import EmployeeAlias, LedgerEntry, TimesheetEntry, Visit
+from app.models import Employee, EmployeeAlias, LedgerEntry, NotebookEntry, TimesheetEntry, Visit
 
 
 def month_bounds(year_month: str) -> tuple[date, date]:
@@ -67,6 +68,72 @@ def monthly_booksy_services(db: Session, employee_id: int, year_month: str) -> D
         )
     )
     return Decimal(str(total))
+
+
+def monthly_notebook_services(db: Session, employee_id: int, year_month: str) -> Decimal:
+    """Sum of prepaid (package/voucher) visits performed this month, credited to
+    the employee — feeds the services commission base."""
+    start, end = month_bounds(year_month)
+    total = db.scalar(
+        select(func.coalesce(func.sum(NotebookEntry.amount_pln), 0)).where(
+            NotebookEntry.employee_id == employee_id,
+            NotebookEntry.entry_date >= start,
+            NotebookEntry.entry_date < end,
+        )
+    )
+    return Decimal(str(total))
+
+
+@dataclass(frozen=True)
+class UnbackedNotebookEntry:
+    employee: str
+    entry_date: str
+    service_name: str
+    amount_pln: str
+
+
+def reconcile_notebook(db: Session, year_month: str) -> list[UnbackedNotebookEntry]:
+    """Anti-fraud: every real visit is in Booksy (a prepaid one settles at 0 PLN
+    but still shows up). So each notebook entry MUST have a completed Booksy
+    visit for that employee on that day. Entries with no backing visit are
+    flagged — someone may be logging work that never happened.
+
+    Matched in Python (portable across SQLite/Postgres) on (employee, date):
+    visit staff_name resolved to employee via aliases.
+    """
+    start, end = month_bounds(year_month)
+
+    alias_to_emp = dict(db.execute(select(EmployeeAlias.alias, EmployeeAlias.employee_id)).all())
+    # (employee_id, date) pairs that have a completed Booksy visit this month
+    backed: set[tuple[int, object]] = set()
+    for staff_name, starts_at in db.execute(
+        select(Visit.staff_name, Visit.starts_at).where(
+            Visit.status == "completed",
+            Visit.starts_at >= start,
+            Visit.starts_at < end,
+        )
+    ):
+        emp_id = alias_to_emp.get(staff_name)
+        if emp_id is not None:
+            backed.add((emp_id, starts_at.date()))
+
+    emp_names = dict(db.execute(select(Employee.id, Employee.display_name)).all())
+    unbacked: list[UnbackedNotebookEntry] = []
+    for entry in db.scalars(
+        select(NotebookEntry).where(
+            NotebookEntry.entry_date >= start, NotebookEntry.entry_date < end
+        )
+    ):
+        if (entry.employee_id, entry.entry_date) not in backed:
+            unbacked.append(
+                UnbackedNotebookEntry(
+                    employee=emp_names.get(entry.employee_id, f"#{entry.employee_id}"),
+                    entry_date=entry.entry_date.isoformat(),
+                    service_name=entry.service_name,
+                    amount_pln=str(entry.amount_pln),
+                )
+            )
+    return unbacked
 
 
 def unmatched_staff_names(db: Session, year_month: str) -> list[str]:
