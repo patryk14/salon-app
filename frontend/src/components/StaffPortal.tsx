@@ -72,6 +72,10 @@ export default function StaffPortal() {
   const [code, setCode] = useState('');
   const [hDate, setHDate] = useState('');
   const [hVal, setHVal] = useState('');
+  const [services, setServices] = useState<string[]>([]);
+  const [cDate, setCDate] = useState('');
+  const [cService, setCService] = useState('');
+  const [cVal, setCVal] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -103,16 +107,18 @@ export default function StaffPortal() {
     if (!link?.linked) return;
     setError(null);
     try {
-      const [rev, com, vis, hrs] = await Promise.all([
+      const [rev, com, vis, hrs, svc] = await Promise.all([
         apiFetch<Revenue>(`/me/revenue?month=${month}`),
         apiFetch<Commission>(`/me/commission?month=${month}`),
         apiFetch<Visit[]>(`/me/visits?month=${month}`),
         apiFetch<Hours[]>(`/me/hours?month=${month}`),
+        apiFetch<string[]>('/services'),
       ]);
       setRevenue(rev);
       setCommission(com);
       setVisits(vis);
       setHours(hrs);
+      setServices(svc);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -151,6 +157,29 @@ export default function StaffPortal() {
       });
       setHVal('');
       await loadMonth();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addCash() {
+    if (!cDate || !cService.trim() || !cVal) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiFetch('/me/cash', {
+        method: 'POST',
+        body: JSON.stringify({
+          entry_date: cDate,
+          service_name: cService.trim(),
+          amount_pln: cVal,
+        }),
+      });
+      setCService('');
+      setCVal('');
+      await loadMonth(); // refresh the revenue tile
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -279,6 +308,45 @@ export default function StaffPortal() {
           {hours.map((h) => `${h.work_date}: ${pln(h.hours)} h`).join(' · ')}
         </p>
       )}
+
+      <h3>Dodaj gotówkę</h3>
+      <div class="addrow">
+        <input
+          type="date"
+          value={cDate}
+          disabled={busy}
+          onInput={(e) => setCDate((e.target as HTMLInputElement).value)}
+        />
+        <input
+          class="svc"
+          type="text"
+          list="me-services"
+          placeholder="usługa"
+          value={cService}
+          disabled={busy}
+          onInput={(e) => setCService((e.target as HTMLInputElement).value)}
+        />
+        <datalist id="me-services">
+          {services.map((s) => (
+            <option value={s} key={s} />
+          ))}
+        </datalist>
+        <input
+          class="hin"
+          type="text"
+          inputMode="decimal"
+          placeholder="kwota zł"
+          value={cVal}
+          disabled={busy}
+          onInput={(e) => setCVal((e.target as HTMLInputElement).value)}
+        />
+        <button class="btn" disabled={busy} onClick={addCash}>
+          Zapisz
+        </button>
+      </div>
+      <p class="muted small">
+        Utarg z Booksy dolicza się automatycznie — tu wpisujesz tylko gotówkę poza Booksy.
+      </p>
 
       <h3>Mój grafik ({visits.length})</h3>
       <div class="scroll">

@@ -34,7 +34,9 @@ DbDep = Annotated[Session, Depends(get_db)]
 timesheets = APIRouter(prefix="/timesheets", tags=["worklog"], dependencies=[require_role("admin")])
 ledger = APIRouter(prefix="/ledger", tags=["worklog"], dependencies=[require_role("admin")])
 notebook = APIRouter(prefix="/notebook", tags=["worklog"], dependencies=[require_role("admin")])
-services = APIRouter(prefix="/services", tags=["catalog"], dependencies=[require_role("admin")])
+# Staff too: the service catalog feeds the staff portal's own cash-entry
+# dropdown (read-only list of Booksy service names — not sensitive).
+services = APIRouter(prefix="/services", tags=["catalog"], dependencies=[require_role("staff")])
 
 
 def _norm_service(name: str) -> str:
