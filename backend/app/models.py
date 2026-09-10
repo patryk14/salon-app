@@ -8,7 +8,18 @@ data — deletion endpoints must remove both the row and the S3 object.
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, Date, DateTime, ForeignKey, Index, Numeric, String, Text, func
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -296,3 +307,54 @@ class BooksyCredential(TimestampMixin, Base):
     access_token: Mapped[str] = mapped_column(String(200))
     api_key: Mapped[str] = mapped_column(String(200))
     fingerprint: Mapped[str] = mapped_column(String(200))
+
+
+# ------------------------------------------------------------------ identity (F6)
+class UserAccount(TimestampMixin, Base):
+    """Bridge from a Cognito identity (`sub`) to a domain row — the one place
+    that says 'this login IS employee X'. Kept as its own table (not `sub`
+    columns on Employee/Client) for one-row disable/relink and an atomic invite
+    claim. `role` mirrors the Cognito group but is stored so the link is
+    self-contained and auditable.
+
+    CHECK: a staff account points at exactly one employee, a client account at
+    exactly one client, an admin account at neither (the owner acts salon-wide,
+    never as a single employee)."""
+
+    __tablename__ = "user_accounts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cognito_sub: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    role: Mapped[str] = mapped_column(String(10), nullable=False)  # admin | staff | client
+    employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id", ondelete="CASCADE"))
+    client_id: Mapped[int | None] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"))
+    status: Mapped[str] = mapped_column(String(10), default="active")  # active | disabled
+
+    employee: Mapped[Employee | None] = relationship()
+
+    __table_args__ = (
+        CheckConstraint(
+            "(role = 'staff' AND employee_id IS NOT NULL AND client_id IS NULL) "
+            "OR (role = 'client' AND client_id IS NOT NULL AND employee_id IS NULL) "
+            "OR (role = 'admin' AND employee_id IS NULL AND client_id IS NULL)",
+            name="ck_user_account_one_link",
+        ),
+    )
+
+
+class Invite(TimestampMixin, Base):
+    """A one-time code the admin hands out (in the salon / QR) to bind a login to
+    a domain row. Claiming creates the UserAccount atomically: the first valid
+    claim wins, later claims of the same code are rejected. Staff invites target
+    an employee_id; client invites (F7) target a client_id."""
+
+    __tablename__ = "invites"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    role: Mapped[str] = mapped_column(String(10), nullable=False)  # staff | client
+    employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id", ondelete="CASCADE"))
+    client_id: Mapped[int | None] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    claimed_by_sub: Mapped[str | None] = mapped_column(String(64))
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

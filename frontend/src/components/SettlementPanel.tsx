@@ -227,6 +227,7 @@ export default function SettlementPanel() {
         </button>
         <p class="muted small">
           Jeśli jesteś zalogowana, ale to widzisz — konto nie ma roli <code>admin</code>.
+          Pracownice mają swój widok: <a href="/panel/pracownik">portal pracownicy</a>.
         </p>
       </div>
     );
@@ -254,6 +255,9 @@ export default function SettlementPanel() {
         </a>
         <a class="btn" href="/panel/aliasy">
           Aliasy
+        </a>
+        <a class="btn" href="/panel/konta">
+          Konta
         </a>
         <a class="btn" href="/panel/booksy">
           Synchronizacja Booksy

@@ -294,3 +294,78 @@ class NotebookOut(BaseModel):
     service_name: str
     amount_pln: Decimal
     note: str | None
+
+
+# ------------------------------------------------------ identity / staff portal (F6)
+class InviteCreate(BaseModel):
+    employee_id: int
+    expires_in_days: int = Field(default=14, ge=1, le=90)
+
+
+class InviteOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    code: str
+    role: str
+    employee_id: int | None
+    client_id: int | None
+    expires_at: datetime | None
+    claimed_at: datetime | None
+    claimed_by_sub: str | None
+
+
+class InviteClaim(BaseModel):
+    code: str = Field(min_length=1, max_length=32)
+
+
+class MeLink(BaseModel):
+    """Who the current login is, for the staff portal. `linked` is false until an
+    invite is claimed — the front end then shows the claim box."""
+
+    linked: bool
+    role: str
+    employee_id: int | None = None
+    display_name: str | None = None
+    fte_factor: Decimal | None = None
+    pay_type: PayType | None = None
+    is_active: bool | None = None
+
+
+class MeRevenueOut(BaseModel):
+    year_month: str
+    booksy_services: Decimal
+    cash_services: Decimal
+    notebook_services: Decimal
+    services_total: Decimal
+
+
+class MeCommissionOut(BaseModel):
+    """A read-only live preview of the caller's own commission for the month,
+    computed from the daily sources with their current scheme. Not a settlement
+    line — the owner still closes the period; this just lets staff see it early."""
+
+    year_month: str
+    services_base: Decimal
+    services_rate: Decimal
+    services_commission: Decimal
+    sales_commission: Decimal
+    hours: Decimal
+    hours_pay: Decimal
+    total_payout: Decimal
+
+
+class MeTimesheetCreate(BaseModel):
+    """Staff self-entry of own hours — employee_id comes from the token, never
+    the body (row-scoping: you can only log your own)."""
+
+    work_date: date
+    hours: Decimal = Field(ge=0, le=MAX_HOURS_PER_DAY, max_digits=5, decimal_places=2)
+    note: str | None = None
+
+
+class MeCashCreate(BaseModel):
+    entry_date: date
+    service_name: str = Field(min_length=1, max_length=200)
+    amount_pln: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
+    note: str | None = None

@@ -89,6 +89,32 @@ def db_client() -> TestClient:
     engine.dispose()
 
 
+@pytest.fixture
+def portal_client() -> TestClient:
+    """Like db_client but the current identity is SWAPPABLE via `c.as_user(...)`
+    over one shared in-memory DB — F6 tests act as admin (create an invite), then
+    as a specific staff `sub` (claim it, read /me). Starts as admin."""
+    from app.auth import CurrentUser, get_current_user
+    from app.deps import get_db
+
+    engine, override_get_db = _sqlite_db_override()
+    app = create_app()
+    holder = {
+        "user": CurrentUser(sub="test-admin", username="test-admin", groups=frozenset({"admin"}))
+    }
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: holder["user"]
+
+    with TestClient(app) as c:
+
+        def as_user(sub: str, groups: set[str]) -> None:
+            holder["user"] = CurrentUser(sub=sub, username=sub, groups=frozenset(groups))
+
+        c.as_user = as_user  # type: ignore[attr-defined]
+        yield c
+    engine.dispose()
+
+
 @pytest.fixture(scope="session")
 def rsa_keys():
     """One RSA keypair per test session — minting keys is slow, reuse is safe."""
