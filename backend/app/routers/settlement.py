@@ -141,9 +141,7 @@ def add_alias(employee_id: int, payload: AliasCreate, db: DbDep) -> AliasOut:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="alias is empty")
     existing = db.scalar(select(EmployeeAlias).where(EmployeeAlias.alias == alias))
     if existing is not None:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, detail="alias already mapped to an employee"
-        )
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="alias already mapped to an employee")
     row = EmployeeAlias(alias=alias, employee_id=employee_id)
     db.add(row)
     db.flush()

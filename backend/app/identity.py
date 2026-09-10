@@ -22,9 +22,7 @@ DbDep = Annotated[Session, Depends(get_db)]
 def account_for(db: Session, sub: str) -> UserAccount | None:
     """The active UserAccount bound to this Cognito sub, if any."""
     return db.scalar(
-        select(UserAccount).where(
-            UserAccount.cognito_sub == sub, UserAccount.status == "active"
-        )
+        select(UserAccount).where(UserAccount.cognito_sub == sub, UserAccount.status == "active")
     )
 
 
