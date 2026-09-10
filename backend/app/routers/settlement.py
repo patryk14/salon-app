@@ -10,7 +10,7 @@ against, so a later rule change (e.g. the 12% bracket) never rewrites payroll.
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -39,6 +39,8 @@ from app.models import (
     utcnow,
 )
 from app.schemas import (
+    AliasCreate,
+    AliasOut,
     DecisionCreate,
     DecisionOut,
     EmployeeCreate,
@@ -89,8 +91,21 @@ def _freeze(scheme: CommissionScheme) -> dict:
 # ------------------------------------------------------------------- employees
 @employees.get("")
 def list_employees(db: DbDep) -> list[EmployeeOut]:
-    rows = db.scalars(select(Employee).order_by(Employee.display_name)).all()
+    rows = db.scalars(
+        select(Employee).options(selectinload(Employee.aliases)).order_by(Employee.display_name)
+    ).all()
     return [EmployeeOut.model_validate(e) for e in rows]
+
+
+@employees.get("/unmatched-staff")
+def list_unmatched_staff(
+    db: DbDep,
+    month: Annotated[str, Query(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")],
+) -> list[str]:
+    """Booksy staff names in the month that no alias resolves — the names the
+    owner must map to an employee, or revenue for them is dropped. Feeds the
+    alias-management screen (pick a name → attach it to the right employee)."""
+    return unmatched_staff_names(db, month)
 
 
 @employees.post("", status_code=status.HTTP_201_CREATED)
@@ -112,6 +127,35 @@ def update_employee(employee_id: int, payload: EmployeeUpdate, db: DbDep) -> Emp
         setattr(emp, field, value)
     db.flush()
     return EmployeeOut.model_validate(emp)
+
+
+@employees.post("/{employee_id}/aliases", status_code=status.HTTP_201_CREATED)
+def add_alias(employee_id: int, payload: AliasCreate, db: DbDep) -> AliasOut:
+    """Map a Booksy staff name to this employee so their visits credit revenue.
+    Aliases are globally unique — a name belongs to exactly one employee."""
+    emp = db.get(Employee, employee_id)
+    if emp is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="employee not found")
+    alias = payload.alias.strip()
+    if not alias:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="alias is empty")
+    existing = db.scalar(select(EmployeeAlias).where(EmployeeAlias.alias == alias))
+    if existing is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="alias already mapped to an employee"
+        )
+    row = EmployeeAlias(alias=alias, employee_id=employee_id)
+    db.add(row)
+    db.flush()
+    return AliasOut.model_validate(row)
+
+
+@employees.delete("/{employee_id}/aliases/{alias_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_alias(employee_id: int, alias_id: int, db: DbDep) -> None:
+    alias = db.get(EmployeeAlias, alias_id)
+    if alias is None or alias.employee_id != employee_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="alias not found")
+    db.delete(alias)
 
 
 # ------------------------------------------------------------- decision log

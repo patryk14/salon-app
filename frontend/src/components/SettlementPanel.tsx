@@ -44,6 +44,14 @@ const INPUT_FIELDS = [
   ['hours', 'Godziny'],
 ] as const;
 
+const KIND_LABEL: Record<string, string> = {
+  no_line: 'brak wiersza',
+  empty: 'pusto',
+  anomaly: 'anomalia',
+  unmatched_staff: 'brak aliasu',
+  notebook_no_visit: 'zeszyt bez wizyty',
+};
+
 const pln = (v: string, dec = 0) =>
   Number(v).toLocaleString('pl-PL', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 
@@ -58,6 +66,7 @@ export default function SettlementPanel() {
   const [ym, setYm] = useState(thisMonth());
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [period, setPeriod] = useState<Period | null>(null);
+  const [readiness, setReadiness] = useState<Readiness | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -83,8 +92,24 @@ export default function SettlementPanel() {
       ]);
       setEmployees(emps.filter((e) => e.is_active));
       setPeriod(p);
+      await loadReadiness(p);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  // Show safeguards proactively (not only in the close dialog): a draft period's
+  // unmatched staff, missing lines and anomalies belong in front of the owner
+  // while there's still time to fix them.
+  async function loadReadiness(p: Period | null) {
+    if (!p || p.status === 'closed') {
+      setReadiness(null);
+      return;
+    }
+    try {
+      setReadiness(await apiFetch<Readiness>(`/settlement/periods/${p.year_month}/readiness`));
+    } catch {
+      setReadiness(null); // readiness is advisory — never block the panel on it
     }
   }
 
@@ -157,6 +182,7 @@ export default function SettlementPanel() {
     try {
       const p = await apiFetch<Period>(`/settlement/periods/${ym}/derive-all`, { method: 'POST' });
       setPeriod(p);
+      await loadReadiness(p);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -226,6 +252,9 @@ export default function SettlementPanel() {
         <a class="btn" href="/panel/wizyty">
           Wizyty
         </a>
+        <a class="btn" href="/panel/aliasy">
+          Aliasy
+        </a>
         <a class="btn" href="/panel/booksy">
           Synchronizacja Booksy
         </a>
@@ -246,6 +275,31 @@ export default function SettlementPanel() {
       </div>
 
       {error && <div class="err">Błąd: {error}</div>}
+
+      {period && !closed && readiness && readiness.warnings.length > 0 && (
+        <div class="warnbox">
+          <div class="warnhead">
+            <b>Do sprawdzenia przed zamknięciem ({readiness.warnings.length})</b>
+            {readiness.warnings.some((w) => w.kind === 'unmatched_staff') && (
+              <a class="btn" href="/panel/aliasy">
+                Napraw aliasy →
+              </a>
+            )}
+          </div>
+          <ul>
+            {readiness.warnings.map((w, i) => (
+              <li key={i}>
+                <span class="wkind">{KIND_LABEL[w.kind] ?? w.kind}</span>
+                <b>{w.employee}</b>: {w.message}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {period && !closed && readiness && readiness.warnings.length === 0 && (
+        <p class="okline">✓ Brak ostrzeżeń — okres gotowy do zamknięcia.</p>
+      )}
 
       {employees.length === 0 && !error && (
         <p class="muted">Budzimy serwer i wczytujemy dane… (do ~15 s po dłuższej przerwie)</p>

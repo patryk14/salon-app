@@ -109,6 +109,17 @@ class EmployeeUpdate(BaseModel):
     active_to: date | None = None  # set = mark former employee
 
 
+class AliasOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    alias: str
+
+
+class AliasCreate(BaseModel):
+    alias: str = Field(min_length=1, max_length=200)
+
+
 class EmployeeOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -120,6 +131,7 @@ class EmployeeOut(BaseModel):
     active_from: date | None
     active_to: date | None
     is_active: bool
+    aliases: list[AliasOut] = []
 
 
 # ------------------------------------------------------------------ settlement

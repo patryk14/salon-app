@@ -137,3 +137,51 @@ def test_decision_log_append_and_list(db_client: TestClient) -> None:
     )
     assert r.status_code == 201
     assert any(d["topic"] == "Test" for d in db_client.get("/commission/decisions").json())
+
+
+# ------------------------------------------------------------------ aliases
+def test_alias_add_list_remove(db_client: TestClient) -> None:
+    e = _emp(db_client, "Karola")
+    r = db_client.post(f"/employees/{e}/aliases", json={"alias": " Karolina "})
+    assert r.status_code == 201, r.text
+    alias_id = r.json()["id"]
+    assert r.json()["alias"] == "Karolina"  # trimmed
+
+    emp = next(x for x in db_client.get("/employees").json() if x["id"] == e)
+    assert [a["alias"] for a in emp["aliases"]] == ["Karolina"]
+
+    assert db_client.delete(f"/employees/{e}/aliases/{alias_id}").status_code == 204
+    emp = next(x for x in db_client.get("/employees").json() if x["id"] == e)
+    assert emp["aliases"] == []
+
+
+def test_alias_globally_unique(db_client: TestClient) -> None:
+    a = _emp(db_client, "Ala")
+    b = _emp(db_client, "Bea")
+    assert db_client.post(f"/employees/{a}/aliases", json={"alias": "Alicja"}).status_code == 201
+    # same name cannot map to a second employee
+    assert db_client.post(f"/employees/{b}/aliases", json={"alias": "Alicja"}).status_code == 409
+
+
+def test_alias_on_missing_employee_404(db_client: TestClient) -> None:
+    assert db_client.post("/employees/9999/aliases", json={"alias": "X"}).status_code == 404
+
+
+def test_remove_alias_wrong_employee_404(db_client: TestClient) -> None:
+    a = _emp(db_client, "Ala")
+    b = _emp(db_client, "Bea")
+    alias_id = db_client.post(f"/employees/{a}/aliases", json={"alias": "Alicja"}).json()["id"]
+    # alias belongs to a, not b
+    assert db_client.delete(f"/employees/{b}/aliases/{alias_id}").status_code == 404
+
+
+def test_unmatched_staff_lists_names_without_alias(db_client: TestClient) -> None:
+    from tests.test_worklog import _visit
+
+    e = _emp(db_client, "Karola")
+    db_client.post(f"/employees/{e}/aliases", json={"alias": "Karolina"})
+    _visit(db_client, "Karolina", "2026-09-03", "200")  # matched → not listed
+    _visit(db_client, "Nowa Osoba", "2026-09-04", "150")  # no alias → listed
+
+    unmatched = db_client.get("/employees/unmatched-staff", params={"month": "2026-09"}).json()
+    assert unmatched == ["Nowa Osoba"]
