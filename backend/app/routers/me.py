@@ -22,13 +22,14 @@ from app.derivation import (
     monthly_notebook_services,
 )
 from app.identity import DbDep, EmployeeDep, account_for
-from app.models import Client, EmployeeAlias, LedgerEntry, TimesheetEntry, Visit
+from app.models import Client, EmployeeAlias, LedgerEntry, NotebookEntry, TimesheetEntry, Visit
 from app.routers.settlement import _scheme_for
 from app.routers.worklog import _norm_service
 from app.schemas import (
     MeCashCreate,
     MeCommissionOut,
     MeLink,
+    MeNotebookCreate,
     MeRevenueOut,
     MeTimesheetCreate,
     TimesheetOut,
@@ -169,6 +170,23 @@ def log_my_hours(payload: MeTimesheetCreate, emp: EmployeeDep, db: DbDep) -> Tim
 def log_my_cash(payload: MeCashCreate, emp: EmployeeDep, db: DbDep):
     """Record my own cash entry for a service (credited to me)."""
     row = LedgerEntry(
+        employee_id=emp.id,
+        entry_date=payload.entry_date,
+        service_name=_norm_service(payload.service_name),
+        amount_pln=payload.amount_pln,
+        note=payload.note,
+    )
+    db.add(row)
+    db.flush()
+    return {"id": row.id, "amount_pln": str(row.amount_pln)}
+
+
+@me.post("/notebook", status_code=status.HTTP_201_CREATED)
+def log_my_notebook(payload: MeNotebookCreate, emp: EmployeeDep, db: DbDep):
+    """Record my own prepaid (package/voucher) visit — credits commission to me.
+    The anti-fraud reconciliation (admin readiness) still requires a matching
+    Booksy visit for me on that day, so this is not a free-money entry."""
+    row = NotebookEntry(
         employee_id=emp.id,
         entry_date=payload.entry_date,
         service_name=_norm_service(payload.service_name),

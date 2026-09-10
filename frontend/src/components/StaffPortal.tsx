@@ -76,6 +76,9 @@ export default function StaffPortal() {
   const [cDate, setCDate] = useState('');
   const [cService, setCService] = useState('');
   const [cVal, setCVal] = useState('');
+  const [nDate, setNDate] = useState('');
+  const [nService, setNService] = useState('');
+  const [nVal, setNVal] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -180,6 +183,29 @@ export default function StaffPortal() {
       setCService('');
       setCVal('');
       await loadMonth(); // refresh the revenue tile
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addNotebook() {
+    if (!nDate || !nService.trim() || !nVal) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiFetch('/me/notebook', {
+        method: 'POST',
+        body: JSON.stringify({
+          entry_date: nDate,
+          service_name: nService.trim(),
+          amount_pln: nVal,
+        }),
+      });
+      setNService('');
+      setNVal('');
+      await loadMonth();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -346,6 +372,41 @@ export default function StaffPortal() {
       </div>
       <p class="muted small">
         Utarg z Booksy dolicza się automatycznie — tu wpisujesz tylko gotówkę poza Booksy.
+      </p>
+
+      <h3>Dodaj zeszyt (pakiet / voucher)</h3>
+      <div class="addrow">
+        <input
+          type="date"
+          value={nDate}
+          disabled={busy}
+          onInput={(e) => setNDate((e.target as HTMLInputElement).value)}
+        />
+        <input
+          class="svc"
+          type="text"
+          list="me-services"
+          placeholder="usługa"
+          value={nService}
+          disabled={busy}
+          onInput={(e) => setNService((e.target as HTMLInputElement).value)}
+        />
+        <input
+          class="hin"
+          type="text"
+          inputMode="decimal"
+          placeholder="wartość zł"
+          value={nVal}
+          disabled={busy}
+          onInput={(e) => setNVal((e.target as HTMLInputElement).value)}
+        />
+        <button class="btn" disabled={busy} onClick={addNotebook}>
+          Zapisz
+        </button>
+      </div>
+      <p class="muted small">
+        Wizyta opłacona z góry (pakiet/voucher) — Booksy rozlicza ją na 0, prowizja liczy się od
+        wartości. Każdy wpis musi mieć wizytę w Booksy tego dnia.
       </p>
 
       <h3>Mój grafik ({visits.length})</h3>

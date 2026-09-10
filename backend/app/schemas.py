@@ -369,3 +369,13 @@ class MeCashCreate(BaseModel):
     service_name: str = Field(min_length=1, max_length=200)
     amount_pln: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
     note: str | None = None
+
+
+class MeNotebookCreate(BaseModel):
+    """Staff self-entry of a prepaid (package/voucher) visit performed — credits
+    commission to the caller. employee_id comes from the token, never the body."""
+
+    entry_date: date
+    service_name: str = Field(min_length=1, max_length=200)
+    amount_pln: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
+    note: str | None = None

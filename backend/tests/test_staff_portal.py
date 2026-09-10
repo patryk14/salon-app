@@ -116,12 +116,54 @@ def test_me_hours_self_entry_and_commission(portal_client: TestClient) -> None:
     assert Decimal(str(comm["hours_pay"])) == Decimal("8") * Decimal("31.40")
 
 
+def test_me_cash_and_notebook_self_entry_hit_own_revenue(portal_client: TestClient) -> None:
+    c = portal_client
+    ola = _emp(c, "Ola")
+    code = _invite_code(c, ola)
+    c.as_user("ola-sub", {"staff"})
+    c.post("/invites/claim", json={"code": code})
+
+    assert (
+        c.post(
+            "/me/cash",
+            json={"entry_date": "2026-09-04", "service_name": "Manicure", "amount_pln": "120"},
+        ).status_code
+        == 201
+    )
+    assert (
+        c.post(
+            "/me/notebook",
+            json={"entry_date": "2026-09-05", "service_name": "Pakiet twarz", "amount_pln": "200"},
+        ).status_code
+        == 201
+    )
+
+    rev = c.get("/me/revenue", params={"month": "2026-09"}).json()
+    assert Decimal(str(rev["cash_services"])) == Decimal("120")
+    assert Decimal(str(rev["notebook_services"])) == Decimal("200")
+    assert Decimal(str(rev["services_total"])) == Decimal("320")
+
+
 def test_unlinked_staff_blocked_from_scoped_endpoints(portal_client: TestClient) -> None:
     c = portal_client
     c.as_user("ghost", {"staff"})
     for path in ("/me/visits", "/me/revenue", "/me/commission", "/me/hours"):
         assert c.get(path, params={"month": "2026-09"}).status_code == 403
     assert c.post("/me/hours", json={"work_date": "2026-09-02", "hours": "8"}).status_code == 403
+    assert (
+        c.post(
+            "/me/cash",
+            json={"entry_date": "2026-09-02", "service_name": "X", "amount_pln": "10"},
+        ).status_code
+        == 403
+    )
+    assert (
+        c.post(
+            "/me/notebook",
+            json={"entry_date": "2026-09-02", "service_name": "X", "amount_pln": "10"},
+        ).status_code
+        == 403
+    )
 
 
 def test_non_staff_blocked_from_me(portal_client: TestClient) -> None:
