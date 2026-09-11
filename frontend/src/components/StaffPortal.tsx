@@ -79,6 +79,13 @@ function thisMonth(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+// Default every date field to today (local), so entry is one calendar click, not
+// typing. `YYYY-MM-DD` in local time (toISOString would shift across midnight UTC).
+function todayISO(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export default function StaffPortal() {
   const [ready, setReady] = useState(false);
   const [isStaff, setIsStaff] = useState(false);
@@ -89,21 +96,21 @@ export default function StaffPortal() {
   const [visits, setVisits] = useState<Visit[]>([]);
   const [hours, setHours] = useState<Hours[]>([]);
   const [code, setCode] = useState('');
-  const [hDate, setHDate] = useState('');
+  const [hDate, setHDate] = useState(todayISO());
   const [hVal, setHVal] = useState('');
   const [services, setServices] = useState<string[]>([]);
-  const [cDate, setCDate] = useState('');
+  const [cDate, setCDate] = useState(todayISO());
   const [cService, setCService] = useState('');
   const [cVal, setCVal] = useState('');
-  const [nDate, setNDate] = useState('');
+  const [nDate, setNDate] = useState(todayISO());
   const [nService, setNService] = useState('');
   const [nVal, setNVal] = useState('');
   const [docs, setDocs] = useState<Doc[]>([]);
   const [avail, setAvail] = useState<Avail[]>([]);
   const [off, setOff] = useState<Off[]>([]);
-  const [aDate, setADate] = useState('');
-  const [oStart, setOStart] = useState('');
-  const [oEnd, setOEnd] = useState('');
+  const [aDate, setADate] = useState(todayISO());
+  const [oStart, setOStart] = useState(todayISO());
+  const [oEnd, setOEnd] = useState(todayISO());
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -579,20 +586,19 @@ export default function StaffPortal() {
         </ul>
       )}
 
-      {docs.length > 0 && (
-        <>
-          <h3>Moje dokumenty</h3>
-          <ul class="offlist">
-            {docs.map((d) => (
-              <li key={d.id}>
-                <b>{d.doc_type}</b>
-                {d.title ? ` · ${d.title}` : ''}
-                {d.valid_until ? ` · ważne do ${d.valid_until}` : ''}
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
+      <h3>Moje dokumenty</h3>
+      <ul class="offlist">
+        {docs.map((d) => (
+          <li key={d.id}>
+            <b>{d.doc_type}</b>
+            {d.title ? ` · ${d.title}` : ''}
+            {d.valid_until ? ` · ważne do ${d.valid_until}` : ''}
+          </li>
+        ))}
+        {docs.length === 0 && (
+          <li class="muted small">Brak dokumentów — doda je właścicielka.</li>
+        )}
+      </ul>
     </div>
   );
 }

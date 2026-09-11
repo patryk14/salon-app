@@ -59,11 +59,10 @@ import SchedulingAdmin from '../../components/SchedulingAdmin.tsx';
       .badge { font-size: .72rem; font-weight: 700; padding: .18rem .5rem; border-radius: 999px; }
       .badge.ok { background: var(--pay-soft); color: var(--pay); }
 
-      .scroll { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
-      table { border-collapse: collapse; width: 100%; min-width: 520px; }
-      th, td { padding: .5rem .7rem; text-align: left; border-bottom: 1px solid var(--line); }
-      th { font-size: .68rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
-      td.nowrap { white-space: nowrap; }
+      .days { display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: .7rem; }
+      .day { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: .6rem .8rem; }
+      .dhead { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; border-bottom: 1px solid var(--line); padding-bottom: .35rem; margin-bottom: .4rem; }
+      .who { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .2rem; font-size: .9rem; }
       :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
     </style>
   </body>

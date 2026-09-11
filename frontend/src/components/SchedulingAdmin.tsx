@@ -30,6 +30,8 @@ function thisMonth(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 const hhmm = (t: string | null) => (t ? t.slice(0, 5) : null);
+const WD = ['niedz.', 'pon.', 'wt.', 'śr.', 'czw.', 'pt.', 'sob.'];
+const weekday = (iso: string) => WD[new Date(iso + 'T00:00:00').getDay()];
 
 export default function SchedulingAdmin() {
   const [ready, setReady] = useState(false);
@@ -82,6 +84,14 @@ export default function SchedulingAdmin() {
 
   const nameOf = (id: number) => employees.find((e) => e.id === id)?.display_name ?? `#${id}`;
 
+  // Group availability by day so the admin reads it as a mini-schedule.
+  const byDay = Object.entries(
+    avail.reduce<Record<string, Avail[]>>((acc, a) => {
+      (acc[a.work_date] ??= []).push(a);
+      return acc;
+    }, {}),
+  ).sort(([a], [b]) => a.localeCompare(b));
+
   if (!ready) return <p class="muted">Ładowanie…</p>;
   if (!isAdmin) {
     return (
@@ -132,33 +142,29 @@ export default function SchedulingAdmin() {
         {off.length === 0 && <li class="muted small">Brak zgłoszeń.</li>}
       </ul>
 
-      <h3>Dyspozycyjność w {month}</h3>
-      <div class="scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Data</th>
-              <th>Pracownica</th>
-              <th>Od–do</th>
-            </tr>
-          </thead>
-          <tbody>
-            {avail.map((a) => (
-              <tr key={a.id}>
-                <td class="nowrap">{a.work_date}</td>
-                <td>{nameOf(a.employee_id)}</td>
-                <td>{hhmm(a.from_time) ? `${hhmm(a.from_time)}–${hhmm(a.to_time) ?? '?'}` : 'cały dzień'}</td>
-              </tr>
-            ))}
-            {avail.length === 0 && (
-              <tr>
-                <td colSpan={3} class="muted" style="text-align:center;padding:1.5rem">
-                  Nikt nie zgłosił dyspozycyjności w tym miesiącu.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      <h3>Dyspozycyjność w {month} — dzień po dniu</h3>
+      {byDay.length === 0 && (
+        <p class="muted small">Nikt nie zgłosił dyspozycyjności w tym miesiącu.</p>
+      )}
+      <div class="days">
+        {byDay.map(([day, rows]) => (
+          <div class="day" key={day}>
+            <div class="dhead">
+              <b>{day}</b>
+              <span class="muted small">{weekday(day)}</span>
+            </div>
+            <ul class="who">
+              {rows.map((a) => (
+                <li key={a.id}>
+                  {nameOf(a.employee_id)}
+                  <span class="muted small">
+                    {hhmm(a.from_time) ? ` ${hhmm(a.from_time)}–${hhmm(a.to_time) ?? '?'}` : ' cały dzień'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
       </div>
     </div>
   );
