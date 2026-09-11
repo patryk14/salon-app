@@ -1,0 +1,67 @@
+---
+// Supply list (Day 1) — shared internal shopping list for the salon.
+import SupplyList from '../../components/SupplyList.tsx';
+---
+
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Lista zamówień — Charm Skin</title>
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="eyebrow">Charm Skin · panel</span>
+        <h1>Lista zamówień</h1>
+      </header>
+      <SupplyList client:only="preact" />
+    </main>
+
+    <style is:global>
+      :root {
+        --paper: #f6f2ef; --card: #fff; --ink: #2c2320; --muted: #8a7d76;
+        --line: #e9dfd8; --line2: #dccec4; --accent: #8a4d6d; --accent-soft: #f3e6ed;
+        --pay: #2f7d5b; --pay-soft: #e2f0e8; --draft: #a86a1f; --draft-soft: #f6ead6;
+        --err: #b4462f; --err-soft: #f8e4de; --field: #fbf8f6;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --paper: #1b1917; --card: #262220; --ink: #ece5e1; --muted: #a99d95;
+          --line: #372f2c; --line2: #463c37; --accent: #d295b3; --accent-soft: #38262f;
+          --pay: #77c39b; --pay-soft: #1e3329; --draft: #e0ac6a; --draft-soft: #362a1a;
+          --err: #e5917c; --err-soft: #3a251f; --field: #201d1b;
+        }
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--paper); color: var(--ink);
+        font-family: 'Public Sans', system-ui, -apple-system, 'Segoe UI', sans-serif; }
+      main { max-width: 720px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+      .eyebrow { font-size: .7rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--accent); }
+      h1 { margin: .2rem 0 1.4rem; font-size: 1.7rem; font-weight: 600; }
+      h2 { font-size: 1.15rem; margin: 0 0 .3rem; }
+      h3 { font-size: 1rem; margin: 1.4rem 0 .5rem; }
+      .muted { color: var(--muted); }
+      .small { font-size: .82rem; }
+      .bar { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; margin-bottom: 1rem; }
+      .btn { font: inherit; font-size: .9rem; border: 1px solid var(--line2); background: var(--card); color: var(--ink); border-radius: 8px; padding: .5rem .9rem; cursor: pointer; text-decoration: none; }
+      .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+      .gate { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 1.5rem; display: flex; flex-direction: column; gap: .7rem; align-items: flex-start; }
+      .err { background: var(--err-soft); color: var(--err); border-radius: 8px; padding: .6rem .8rem; margin-bottom: .8rem; font-size: .88rem; }
+
+      .addrow { display: flex; gap: .5rem; }
+      .grow { flex: 1; min-width: 0; font: inherit; padding: .5rem .6rem; border-radius: 8px; border: 1px solid var(--line2); background: var(--field); color: var(--ink); }
+      .list { list-style: none; margin: .3rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .35rem; }
+      .list li { display: flex; align-items: center; gap: .5rem; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: .5rem .7rem; }
+      .list.done li { opacity: .6; }
+      .list.done .nm { text-decoration: line-through; }
+      .check { border: none; background: transparent; cursor: pointer; font-size: 1.2rem; line-height: 1; padding: 0; color: var(--accent); }
+      .nm { flex: 1; }
+      .by { color: var(--muted); font-size: .78rem; }
+      .x { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 1.15rem; line-height: 1; padding: 0 .2rem; }
+      .x:hover { color: var(--err); }
+      :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    </style>
+  </body>
+</html>

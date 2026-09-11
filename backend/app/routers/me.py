@@ -9,7 +9,7 @@ self-view, not an admin tool.
 
 from typing import Annotated
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 
 from app.auth import UserDep, require_role
@@ -22,16 +22,31 @@ from app.derivation import (
     monthly_notebook_services,
 )
 from app.identity import DbDep, EmployeeDep, account_for
-from app.models import Client, EmployeeAlias, LedgerEntry, NotebookEntry, TimesheetEntry, Visit
+from app.models import (
+    Availability,
+    Client,
+    EmployeeAlias,
+    LedgerEntry,
+    NotebookEntry,
+    StaffDocument,
+    TimeOff,
+    TimesheetEntry,
+    Visit,
+)
 from app.routers.settlement import _scheme_for
 from app.routers.worklog import _norm_service
 from app.schemas import (
+    AvailabilityCreate,
+    AvailabilityOut,
     MeCashCreate,
     MeCommissionOut,
     MeLink,
     MeNotebookCreate,
     MeRevenueOut,
     MeTimesheetCreate,
+    StaffDocumentOut,
+    TimeOffCreate,
+    TimeOffOut,
     TimesheetOut,
     VisitBrowseOut,
 )
@@ -179,6 +194,94 @@ def log_my_cash(payload: MeCashCreate, emp: EmployeeDep, db: DbDep):
     db.add(row)
     db.flush()
     return {"id": row.id, "amount_pln": str(row.amount_pln)}
+
+
+# ---------------------------------------------------------- my documents (Day 1)
+@me.get("/documents")
+def my_documents(emp: EmployeeDep, db: DbDep) -> list[StaffDocumentOut]:
+    """My own employment/RODO documents (read-only — the admin manages them)."""
+    rows = db.scalars(
+        select(StaffDocument)
+        .where(StaffDocument.employee_id == emp.id)
+        .order_by(StaffDocument.valid_until.is_(None), StaffDocument.valid_until)
+    ).all()
+    return [StaffDocumentOut.model_validate(d) for d in rows]
+
+
+# ------------------------------------------------ my availability + time off (Day 1)
+@me.get("/availability")
+def my_availability(emp: EmployeeDep, db: DbDep, month: MonthQuery) -> list[AvailabilityOut]:
+    start, end = month_bounds(month)
+    rows = db.scalars(
+        select(Availability)
+        .where(
+            Availability.employee_id == emp.id,
+            Availability.work_date >= start,
+            Availability.work_date < end,
+        )
+        .order_by(Availability.work_date)
+    ).all()
+    return [AvailabilityOut.model_validate(a) for a in rows]
+
+
+@me.post("/availability", status_code=status.HTTP_201_CREATED)
+def set_my_availability(
+    payload: AvailabilityCreate, emp: EmployeeDep, db: DbDep
+) -> AvailabilityOut:
+    """Declare a day I can work (one row per day — re-posting overwrites)."""
+    row = db.scalar(
+        select(Availability).where(
+            Availability.employee_id == emp.id, Availability.work_date == payload.work_date
+        )
+    )
+    if row is None:
+        row = Availability(employee_id=emp.id, work_date=payload.work_date)
+        db.add(row)
+    row.from_time = payload.from_time
+    row.to_time = payload.to_time
+    row.note = payload.note
+    db.flush()
+    return AvailabilityOut.model_validate(row)
+
+
+@me.delete("/availability/{avail_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_my_availability(avail_id: int, emp: EmployeeDep, db: DbDep) -> None:
+    row = db.get(Availability, avail_id)
+    if row is None or row.employee_id != emp.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not found")
+    db.delete(row)
+
+
+@me.get("/time-off")
+def my_time_off(emp: EmployeeDep, db: DbDep) -> list[TimeOffOut]:
+    rows = db.scalars(
+        select(TimeOff).where(TimeOff.employee_id == emp.id).order_by(TimeOff.start_date)
+    ).all()
+    return [TimeOffOut.model_validate(t) for t in rows]
+
+
+@me.post("/time-off", status_code=status.HTTP_201_CREATED)
+def request_my_time_off(payload: TimeOffCreate, emp: EmployeeDep, db: DbDep) -> TimeOffOut:
+    if payload.end_date < payload.start_date:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="end_date before start_date")
+    row = TimeOff(
+        employee_id=emp.id,
+        start_date=payload.start_date,
+        end_date=payload.end_date,
+        kind=payload.kind,
+        note=payload.note,
+    )
+    db.add(row)
+    db.flush()
+    return TimeOffOut.model_validate(row)
+
+
+@me.delete("/time-off/{off_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_my_time_off(off_id: int, emp: EmployeeDep, db: DbDep) -> None:
+    row = db.get(TimeOff, off_id)
+    if row is None or row.employee_id != emp.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not found")
+    db.delete(row)
 
 
 @me.post("/notebook", status_code=status.HTTP_201_CREATED)

@@ -44,6 +44,25 @@ interface Hours {
   hours: string;
   note: string | null;
 }
+interface Doc {
+  id: number;
+  doc_type: string;
+  title: string | null;
+  valid_until: string | null;
+}
+interface Avail {
+  id: number;
+  work_date: string;
+  from_time: string | null;
+  to_time: string | null;
+}
+interface Off {
+  id: number;
+  start_date: string;
+  end_date: string;
+  kind: string;
+  status: string;
+}
 
 const pln = (v: string, dec = 0) =>
   Number(v).toLocaleString('pl-PL', { minimumFractionDigits: dec, maximumFractionDigits: dec });
@@ -79,6 +98,12 @@ export default function StaffPortal() {
   const [nDate, setNDate] = useState('');
   const [nService, setNService] = useState('');
   const [nVal, setNVal] = useState('');
+  const [docs, setDocs] = useState<Doc[]>([]);
+  const [avail, setAvail] = useState<Avail[]>([]);
+  const [off, setOff] = useState<Off[]>([]);
+  const [aDate, setADate] = useState('');
+  const [oStart, setOStart] = useState('');
+  const [oEnd, setOEnd] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -110,18 +135,24 @@ export default function StaffPortal() {
     if (!link?.linked) return;
     setError(null);
     try {
-      const [rev, com, vis, hrs, svc] = await Promise.all([
+      const [rev, com, vis, hrs, svc, dcs, avl, ofs] = await Promise.all([
         apiFetch<Revenue>(`/me/revenue?month=${month}`),
         apiFetch<Commission>(`/me/commission?month=${month}`),
         apiFetch<Visit[]>(`/me/visits?month=${month}`),
         apiFetch<Hours[]>(`/me/hours?month=${month}`),
         apiFetch<string[]>('/services'),
+        apiFetch<Doc[]>('/me/documents'),
+        apiFetch<Avail[]>(`/me/availability?month=${month}`),
+        apiFetch<Off[]>('/me/time-off'),
       ]);
       setRevenue(rev);
       setCommission(com);
       setVisits(vis);
       setHours(hrs);
       setServices(svc);
+      setDocs(dcs);
+      setAvail(avl);
+      setOff(ofs);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -213,6 +244,40 @@ export default function StaffPortal() {
     }
   }
 
+  async function saveAction(fn: () => Promise<unknown>) {
+    setBusy(true);
+    setError(null);
+    try {
+      await fn();
+      await loadMonth();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const addAvailability = () =>
+    aDate &&
+    saveAction(() =>
+      apiFetch('/me/availability', { method: 'POST', body: JSON.stringify({ work_date: aDate }) }),
+    );
+  const delAvailability = (id: number) =>
+    saveAction(() => apiFetch(`/me/availability/${id}`, { method: 'DELETE' }));
+  const addTimeOff = () =>
+    oStart &&
+    oEnd &&
+    saveAction(async () => {
+      await apiFetch('/me/time-off', {
+        method: 'POST',
+        body: JSON.stringify({ start_date: oStart, end_date: oEnd }),
+      });
+      setOStart('');
+      setOEnd('');
+    });
+  const delTimeOff = (id: number) =>
+    saveAction(() => apiFetch(`/me/time-off/${id}`, { method: 'DELETE' }));
+
   if (!ready) return <p class="muted">Ładowanie…</p>;
 
   if (!isStaff) {
@@ -274,6 +339,9 @@ export default function StaffPortal() {
             onInput={(e) => setMonth((e.target as HTMLInputElement).value)}
           />
         </label>
+        <a class="btn" href="/panel/zaopatrzenie">
+          Lista zamówień
+        </a>
         <span class="spacer" />
         <button class="btn" onClick={() => logout()}>
           Wyloguj
@@ -450,6 +518,81 @@ export default function StaffPortal() {
           </tbody>
         </table>
       </div>
+
+      <h3>Dyspozycyjność ({month})</h3>
+      <div class="addrow">
+        <input
+          type="date"
+          value={aDate}
+          disabled={busy}
+          onInput={(e) => setADate((e.target as HTMLInputElement).value)}
+        />
+        <button class="btn" disabled={busy} onClick={addAvailability}>
+          Dodaj dzień
+        </button>
+      </div>
+      {avail.length > 0 && (
+        <p class="muted small chips">
+          {avail.map((a) => (
+            <span class="chip" key={a.id}>
+              {a.work_date}
+              <button class="x" title="Usuń" disabled={busy} onClick={() => delAvailability(a.id)}>
+                ×
+              </button>
+            </span>
+          ))}
+        </p>
+      )}
+
+      <h3>Urlopy / wolne</h3>
+      <div class="addrow">
+        <input
+          type="date"
+          value={oStart}
+          disabled={busy}
+          onInput={(e) => setOStart((e.target as HTMLInputElement).value)}
+        />
+        <span class="muted">→</span>
+        <input
+          type="date"
+          value={oEnd}
+          disabled={busy}
+          onInput={(e) => setOEnd((e.target as HTMLInputElement).value)}
+        />
+        <button class="btn" disabled={busy} onClick={addTimeOff}>
+          Zgłoś
+        </button>
+      </div>
+      {off.length > 0 && (
+        <ul class="offlist">
+          {off.map((o) => (
+            <li key={o.id}>
+              {o.start_date} → {o.end_date} · {o.kind}
+              <span class={`badge ${o.status === 'approved' ? 's-completed' : 's-scheduled'}`}>
+                {o.status === 'approved' ? 'zaakceptowany' : 'oczekuje'}
+              </span>
+              <button class="x" title="Usuń" disabled={busy} onClick={() => delTimeOff(o.id)}>
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {docs.length > 0 && (
+        <>
+          <h3>Moje dokumenty</h3>
+          <ul class="offlist">
+            {docs.map((d) => (
+              <li key={d.id}>
+                <b>{d.doc_type}</b>
+                {d.title ? ` · ${d.title}` : ''}
+                {d.valid_until ? ` · ważne do ${d.valid_until}` : ''}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   );
 }

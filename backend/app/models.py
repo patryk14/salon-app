@@ -5,7 +5,7 @@ production code paths. GDPR note: Client rows and Photo objects are personal
 data — deletion endpoints must remove both the row and the S3 object.
 """
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time
 from decimal import Decimal
 
 from sqlalchemy import (
@@ -18,6 +18,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    Time,
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -358,3 +359,79 @@ class Invite(TimestampMixin, Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     claimed_by_sub: Mapped[str | None] = mapped_column(String(64))
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+# ---------------------------------------------------- supplies list (F6+, Day 1)
+class SupplyItem(TimestampMixin, Base):
+    """Internal shopping/procurement list — things to buy for the salon. NOT the
+    customer shop (F11). Any staff or admin adds items and marks them bought;
+    it's a shared salon list, not row-scoped."""
+
+    __tablename__ = "supply_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(10), default="to_buy")  # to_buy | bought
+    note: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[str | None] = mapped_column(String(100))  # cognito username
+    bought_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+# ------------------------------------------------ staff documents (Day 1)
+class StaffDocument(TimestampMixin, Base):
+    """Employment / RODO documents per employee, with an expiry the admin is
+    warned about (< 30 days). File scans arrive with the media slice (F9); for
+    now this is metadata + the expiry alert. Staff sees only their own."""
+
+    __tablename__ = "staff_documents"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(
+        ForeignKey("employees.id", ondelete="CASCADE"), nullable=False
+    )
+    doc_type: Mapped[str] = mapped_column(String(20), default="umowa")  # umowa | rodo | inne
+    title: Mapped[str | None] = mapped_column(String(200))
+    valid_until: Mapped[date | None] = mapped_column(Date)
+    note: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (Index("ix_staff_documents_employee", "employee_id"),)
+
+
+# -------------------------------------------- availability + time off (Day 1)
+class Availability(TimestampMixin, Base):
+    """When an employee declares they can/want to work — feeds the future
+    schedule generator. One row per (employee, date), optional time window."""
+
+    __tablename__ = "availabilities"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(
+        ForeignKey("employees.id", ondelete="CASCADE"), nullable=False
+    )
+    work_date: Mapped[date] = mapped_column(Date, nullable=False)
+    from_time: Mapped[time | None] = mapped_column(Time)
+    to_time: Mapped[time | None] = mapped_column(Time)
+    note: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        Index("ix_availability_employee_date", "employee_id", "work_date", unique=True),
+    )
+
+
+class TimeOff(TimestampMixin, Base):
+    """A holiday / day-off over a date range. Staff declares (requested), admin
+    approves. A day off blocks availability in the future schedule generator."""
+
+    __tablename__ = "time_off"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(
+        ForeignKey("employees.id", ondelete="CASCADE"), nullable=False
+    )
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date] = mapped_column(Date, nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), default="urlop")  # urlop | inne
+    status: Mapped[str] = mapped_column(String(10), default="requested")  # requested | approved
+    note: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (Index("ix_time_off_employee", "employee_id", "start_date"),)

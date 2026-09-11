@@ -1,6 +1,6 @@
 """API request/response shapes (Pydantic). ORM rows never leave the app raw."""
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 from enum import StrEnum
 
@@ -379,3 +379,90 @@ class MeNotebookCreate(BaseModel):
     service_name: str = Field(min_length=1, max_length=200)
     amount_pln: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
     note: str | None = None
+
+
+# ------------------------------------------------------- supplies list (Day 1)
+class SupplyItemCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    note: str | None = None
+
+
+class SupplyItemUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    status: str | None = Field(default=None, pattern=r"^(to_buy|bought)$")
+    note: str | None = None
+
+
+class SupplyItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    status: str
+    note: str | None
+    created_by: str | None
+    bought_at: datetime | None
+
+
+# ------------------------------------------------- staff documents (Day 1)
+class StaffDocumentCreate(BaseModel):
+    employee_id: int
+    doc_type: str = Field(default="umowa", pattern=r"^(umowa|rodo|inne)$")
+    title: str | None = Field(default=None, max_length=200)
+    valid_until: date | None = None
+    note: str | None = None
+
+
+class StaffDocumentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    employee_id: int
+    doc_type: str
+    title: str | None
+    valid_until: date | None
+    note: str | None
+
+
+# ----------------------------------------- availability + time off (Day 1)
+class AvailabilityCreate(BaseModel):
+    """Staff declares a day they can work. employee_id is from the token."""
+
+    work_date: date
+    from_time: time | None = None
+    to_time: time | None = None
+    note: str | None = None
+
+
+class AvailabilityOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    employee_id: int
+    work_date: date
+    from_time: time | None
+    to_time: time | None
+    note: str | None
+
+
+class TimeOffCreate(BaseModel):
+    start_date: date
+    end_date: date
+    kind: str = Field(default="urlop", pattern=r"^(urlop|inne)$")
+    note: str | None = None
+
+
+class TimeOffUpdate(BaseModel):
+    status: str = Field(pattern=r"^(requested|approved)$")
+
+
+class TimeOffOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    employee_id: int
+    start_date: date
+    end_date: date
+    kind: str
+    status: str
+    note: str | None

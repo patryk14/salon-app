@@ -259,6 +259,15 @@ export default function SettlementPanel() {
         <a class="btn" href="/panel/konta">
           Konta
         </a>
+        <a class="btn" href="/panel/zaopatrzenie">
+          Zamówienia
+        </a>
+        <a class="btn" href="/panel/dokumenty">
+          Dokumenty
+        </a>
+        <a class="btn" href="/panel/dyspozycyjnosc">
+          Grafik
+        </a>
         <a class="btn" href="/panel/booksy">
           Synchronizacja Booksy
         </a>
