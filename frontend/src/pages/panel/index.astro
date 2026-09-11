@@ -2,6 +2,7 @@
 // Admin panel shell. The panel is a client-only Preact island (needs the
 // browser: Cognito tokens, fetch). Astro renders only the frame + styles.
 import SettlementPanel from '../../components/SettlementPanel.tsx';
+import PanelNav from '../../components/PanelNav.astro';
 ---
 
 <html lang="pl">
@@ -17,6 +18,7 @@ import SettlementPanel from '../../components/SettlementPanel.tsx';
         <span class="eyebrow">Charm Skin · panel administratora</span>
         <h1>Rozliczenia miesięczne</h1>
       </header>
+      <PanelNav />
       <SettlementPanel client:only="preact" />
     </main>
 

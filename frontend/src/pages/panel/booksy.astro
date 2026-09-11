@@ -1,6 +1,7 @@
 ---
 // Booksy sync screen (F5): set credentials + pull the visits report.
 import BooksySync from '../../components/BooksySync.tsx';
+import PanelNav from '../../components/PanelNav.astro';
 ---
 
 <html lang="pl">
@@ -16,6 +17,7 @@ import BooksySync from '../../components/BooksySync.tsx';
         <span class="eyebrow">Charm Skin · panel administratora</span>
         <h1>Synchronizacja Booksy</h1>
       </header>
+      <PanelNav />
       <BooksySync client:only="preact" />
     </main>
 

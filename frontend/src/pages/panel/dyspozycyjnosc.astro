@@ -1,6 +1,7 @@
 ---
 // Scheduling overview (Day 1, admin) — availability + time-off approval.
 import SchedulingAdmin from '../../components/SchedulingAdmin.tsx';
+import PanelNav from '../../components/PanelNav.astro';
 ---
 
 <html lang="pl">
@@ -16,6 +17,7 @@ import SchedulingAdmin from '../../components/SchedulingAdmin.tsx';
         <span class="eyebrow">Charm Skin · panel administratora</span>
         <h1>Dyspozycyjność i urlopy</h1>
       </header>
+      <PanelNav />
       <SchedulingAdmin client:only="preact" />
     </main>
 

@@ -247,30 +247,6 @@ export default function SettlementPanel() {
         {period && (
           <span class={`badge ${closed ? 'closed' : 'draft'}`}>{closed ? 'Zamknięty' : 'Szkic'}</span>
         )}
-        <a class="btn" href="/panel/dzien">
-          Raport dzienny
-        </a>
-        <a class="btn" href="/panel/wizyty">
-          Wizyty
-        </a>
-        <a class="btn" href="/panel/aliasy">
-          Aliasy
-        </a>
-        <a class="btn" href="/panel/konta">
-          Konta
-        </a>
-        <a class="btn" href="/panel/zaopatrzenie">
-          Zamówienia
-        </a>
-        <a class="btn" href="/panel/dokumenty">
-          Dokumenty
-        </a>
-        <a class="btn" href="/panel/dyspozycyjnosc">
-          Grafik
-        </a>
-        <a class="btn" href="/panel/booksy">
-          Synchronizacja Booksy
-        </a>
         <span class="spacer" />
         {period && !closed && (
           <button class="btn" disabled={busy} onClick={deriveAll} title="Złóż miesiąc z godzin, gotówki i wizyt Booksy">

@@ -113,14 +113,6 @@ export default function StaffDocs() {
 
   return (
     <div>
-      <div class="bar">
-        <a class="btn" href="/panel">
-          ← Rozliczenia
-        </a>
-        <a class="btn" href="/panel/dyspozycyjnosc">
-          Dyspozycyjność
-        </a>
-      </div>
 
       {error && <div class="err">Błąd: {error}</div>}
 

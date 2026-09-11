@@ -108,12 +108,6 @@ export default function SchedulingAdmin() {
   return (
     <div>
       <div class="bar">
-        <a class="btn" href="/panel">
-          ← Rozliczenia
-        </a>
-        <a class="btn" href="/panel/dokumenty">
-          Dokumenty
-        </a>
         <span class="spacer" />
         <label>
           Miesiąc:{' '}

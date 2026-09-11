@@ -1,6 +1,7 @@
 ---
 // Visits browser — the imported/pulled Booksy visits.
 import VisitsBrowser from '../../components/VisitsBrowser.tsx';
+import PanelNav from '../../components/PanelNav.astro';
 ---
 
 <html lang="pl">
@@ -16,6 +17,7 @@ import VisitsBrowser from '../../components/VisitsBrowser.tsx';
         <span class="eyebrow">Charm Skin · panel administratora</span>
         <h1>Wizyty</h1>
       </header>
+      <PanelNav />
       <VisitsBrowser client:only="preact" />
     </main>
 

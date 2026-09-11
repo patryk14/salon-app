@@ -2,6 +2,7 @@
 // Alias management — map Booksy staff names to employees (closing the Booksy
 // revenue-attribution loop) and clear the month's unmatched names.
 import AliasManager from '../../components/AliasManager.tsx';
+import PanelNav from '../../components/PanelNav.astro';
 ---
 
 <html lang="pl">
@@ -17,6 +18,7 @@ import AliasManager from '../../components/AliasManager.tsx';
         <span class="eyebrow">Charm Skin · panel administratora</span>
         <h1>Aliasy pracownic</h1>
       </header>
+      <PanelNav />
       <AliasManager client:only="preact" />
     </main>
 

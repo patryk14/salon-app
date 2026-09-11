@@ -3,6 +3,7 @@
 // the settlement panel (global block in panel/index.astro would not apply here,
 // so the shared tokens/classes are duplicated).
 import DailyEntry from '../../components/DailyEntry.tsx';
+import PanelNav from '../../components/PanelNav.astro';
 ---
 
 <html lang="pl">
@@ -18,6 +19,7 @@ import DailyEntry from '../../components/DailyEntry.tsx';
         <span class="eyebrow">Charm Skin · panel administratora</span>
         <h1>Raport dzienny</h1>
       </header>
+      <PanelNav />
       <DailyEntry client:only="preact" />
     </main>
 

@@ -1,6 +1,7 @@
 ---
 // Staff documents (Day 1, admin) — contracts/RODO with expiry alerts.
 import StaffDocs from '../../components/StaffDocs.tsx';
+import PanelNav from '../../components/PanelNav.astro';
 ---
 
 <html lang="pl">
@@ -16,6 +17,7 @@ import StaffDocs from '../../components/StaffDocs.tsx';
         <span class="eyebrow">Charm Skin · panel administratora</span>
         <h1>Dokumenty pracownic</h1>
       </header>
+      <PanelNav />
       <StaffDocs client:only="preact" />
     </main>
 

@@ -2,6 +2,7 @@
 // Staff accounts (F6, admin) — generate one-time invite codes that link an
 // employee's Cognito login to their profile.
 import InviteManager from '../../components/InviteManager.tsx';
+import PanelNav from '../../components/PanelNav.astro';
 ---
 
 <html lang="pl">
@@ -17,6 +18,7 @@ import InviteManager from '../../components/InviteManager.tsx';
         <span class="eyebrow">Charm Skin · panel administratora</span>
         <h1>Konta pracownic</h1>
       </header>
+      <PanelNav />
       <InviteManager client:only="preact" />
     </main>
 

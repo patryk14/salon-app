@@ -84,9 +84,6 @@ export default function VisitsBrowser() {
   return (
     <div>
       <div class="bar">
-        <a class="btn" href="/panel">
-          ← Rozliczenia
-        </a>
         <label>
           Miesiąc:{' '}
           <input class="month" type="month" value={month} onInput={(e) => setMonth((e.target as HTMLInputElement).value)} />

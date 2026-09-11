@@ -88,14 +88,6 @@ export default function InviteManager() {
 
   return (
     <div>
-      <div class="bar">
-        <a class="btn" href="/panel">
-          ← Rozliczenia
-        </a>
-        <a class="btn" href="/panel/aliasy">
-          Aliasy
-        </a>
-      </div>
 
       {error && <div class="err">Błąd: {error}</div>}
 
