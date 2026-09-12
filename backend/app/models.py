@@ -435,3 +435,20 @@ class TimeOff(TimestampMixin, Base):
     note: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (Index("ix_time_off_employee", "employee_id", "start_date"),)
+
+
+# ------------------------------------------------ daily cash reconciliation (Day 2)
+class SalonDay(TimestampMixin, Base):
+    """Salon-wide daily cash reconciliation (digitizes the zabiegi_koszty till
+    sheet). The unregistered cash ('gotówka nie wbita') is NOT stored here — it
+    is always summed from that day's ledger_entries, so it can't drift. This row
+    holds only what a person must type: cash taken through Booksy and the fiscal
+    register (POS) day total. One row per day."""
+
+    __tablename__ = "salon_days"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    day: Mapped[date] = mapped_column(Date, unique=True, nullable=False)
+    booksy_cash: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
+    fiscal_register: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
+    note: Mapped[str | None] = mapped_column(Text)

@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.db import get_engine
 from app.routers import (
+    cash,
     clients,
     health,
     hr,
@@ -71,4 +72,5 @@ def create_app() -> FastAPI:
     app.include_router(supplies.supplies)
     app.include_router(hr.documents)
     app.include_router(hr.scheduling)
+    app.include_router(cash.salon_days)
     return app

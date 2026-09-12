@@ -466,3 +466,23 @@ class TimeOffOut(BaseModel):
     kind: str
     status: str
     note: str | None
+
+
+# ------------------------------------------- daily cash reconciliation (Day 2)
+class SalonDayIn(BaseModel):
+    """What a person types for a day's till: cash taken via Booksy and the
+    fiscal-register (POS) total. Unregistered cash is derived, never typed."""
+
+    booksy_cash: Decimal = Field(default=Decimal("0"), ge=0, max_digits=10, decimal_places=2)
+    fiscal_register: Decimal = Field(default=Decimal("0"), ge=0, max_digits=10, decimal_places=2)
+    note: str | None = None
+
+
+class SalonDayOut(BaseModel):
+    day: date
+    booksy_cash: Decimal
+    fiscal_register: Decimal
+    # Derived from the day's ledger entries (all employees), never stored:
+    unregistered_cash: Decimal  # "gotówka nie wbita"
+    cash_in_register: Decimal  # unregistered + booksy_cash ("suma gotówki w kasie")
+    note: str | None

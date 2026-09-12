@@ -24,6 +24,14 @@ interface Entry {
   service_name: string | null;
   amount_pln: string;
 }
+interface SalonDay {
+  day: string;
+  booksy_cash: string;
+  fiscal_register: string;
+  unregistered_cash: string;
+  cash_in_register: string;
+  note: string | null;
+}
 
 function today(): string {
   const d = new Date();
@@ -48,6 +56,9 @@ export default function DailyEntry() {
   // drafts keyed "cash-<empId>" / "nb-<empId>"
   const [name, setName] = useState<Record<string, string>>({});
   const [amount, setAmount] = useState<Record<string, string>>({});
+  const [cash, setCash] = useState<SalonDay | null>(null);
+  const [booksyIn, setBooksyIn] = useState('');
+  const [fiscalIn, setFiscalIn] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -70,17 +81,21 @@ export default function DailyEntry() {
     setError(null);
     const month = day.slice(0, 7);
     try {
-      const [emps, ts, led, nb, svc] = await Promise.all([
+      const [emps, ts, led, nb, svc, sd] = await Promise.all([
         apiFetch<Employee[]>('/employees'),
         apiFetch<Timesheet[]>(`/timesheets?month=${month}`),
         apiFetch<Entry[]>(`/ledger?month=${month}`),
         apiFetch<Entry[]>(`/notebook?month=${month}`),
         apiFetch<string[]>('/services'),
+        apiFetch<SalonDay>(`/salon-days/${day}`),
       ]);
       setEmployees(emps.filter((e) => e.is_active));
       setServices(svc);
       setLedger(led);
       setNotebook(nb);
+      setCash(sd);
+      setBooksyIn(Number(sd.booksy_cash) ? sd.booksy_cash : '');
+      setFiscalIn(Number(sd.fiscal_register) ? sd.fiscal_register : '');
       const h: Record<number, string> = {};
       ts.filter((t) => t.work_date === day).forEach((t) => (h[t.employee_id] = t.hours));
       setHours(h);
@@ -152,6 +167,22 @@ export default function DailyEntry() {
     }
   }
 
+  async function saveCash() {
+    setError(null);
+    try {
+      await apiFetch(`/salon-days/${day}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          booksy_cash: booksyIn === '' ? '0' : booksyIn,
+          fiscal_register: fiscalIn === '' ? '0' : fiscalIn,
+        }),
+      });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   if (!ready) return <p class="muted">Ładowanie…</p>;
   if (!isAdmin) {
     return (
@@ -215,9 +246,6 @@ export default function DailyEntry() {
   return (
     <div>
       <div class="bar">
-        <a class="btn" href="/panel">
-          ← Rozliczenia
-        </a>
         <label>
           Dzień:{' '}
           <input class="month" type="date" value={day} onInput={(e) => setDay((e.target as HTMLInputElement).value)} />
@@ -256,6 +284,51 @@ export default function DailyEntry() {
           </div>
         ))}
       </div>
+
+      {employees.length > 0 && (
+        <div class="kasa">
+          <h3>Kasa dnia — {day}</h3>
+          <div class="kasarow">
+            <div class="kfield">
+              <span class="klbl">Gotówka nie wbita</span>
+              <span class="kval">{pln(cash?.unregistered_cash ?? 0)} zł</span>
+              <span class="khint">liczone z wpisów gotówki</span>
+            </div>
+            <div class="kfield">
+              <span class="klbl">Gotówka z Booksy</span>
+              <input
+                class="fld kin"
+                type="text"
+                inputMode="decimal"
+                placeholder="0"
+                value={booksyIn}
+                onInput={(e) => setBooksyIn((e.target as HTMLInputElement).value)}
+              />
+            </div>
+            <div class="kfield">
+              <span class="klbl">Suma gotówki w kasie</span>
+              <span class="kval">
+                {pln(Number(cash?.unregistered_cash ?? 0) + Number(booksyIn || 0))} zł
+              </span>
+              <span class="khint">nie wbita + Booksy</span>
+            </div>
+            <div class="kfield">
+              <span class="klbl">Kasa fiskalna</span>
+              <input
+                class="fld kin"
+                type="text"
+                inputMode="decimal"
+                placeholder="0"
+                value={fiscalIn}
+                onInput={(e) => setFiscalIn((e.target as HTMLInputElement).value)}
+              />
+            </div>
+            <button class="btn" onClick={saveCash}>
+              Zapisz kasę
+            </button>
+          </div>
+        </div>
+      )}
 
       <p class="muted small" style="margin-top:1rem">
         Godziny zapisują się po wyjściu z pola (jeden wpis na dzień, max {MAX_HOURS}). Gotówka i zeszyt
