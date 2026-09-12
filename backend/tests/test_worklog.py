@@ -173,10 +173,14 @@ def test_readiness_flags_empty_and_unmatched(db_client: TestClient) -> None:
     assert not any(w["employee"] == "Karola" and w["kind"] == "empty" for w in rd["warnings"])
 
 
-def test_worklog_endpoints_require_admin(auth_client: TestClient, mint_token) -> None:
+def test_worklog_endpoints_allow_staff_not_client(auth_client: TestClient, mint_token) -> None:
+    # Daily reconciliation is front-desk work: staff allowed, a client rejected.
     staff = {"Authorization": f"Bearer {mint_token(groups=['staff'])}"}
-    assert auth_client.get("/timesheets", headers=staff).status_code == 403
-    assert auth_client.get("/ledger", headers=staff).status_code == 403
+    client = {"Authorization": f"Bearer {mint_token(groups=['client'])}"}
+    assert auth_client.get("/timesheets", headers=staff).status_code == 200
+    assert auth_client.get("/ledger", headers=staff).status_code == 200
+    assert auth_client.get("/timesheets", headers=client).status_code == 403
+    assert auth_client.get("/ledger", headers=client).status_code == 403
 
 
 def test_notebook_feeds_services_base_via_derive(db_client: TestClient) -> None:

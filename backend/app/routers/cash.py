@@ -21,7 +21,10 @@ from app.schemas import SalonDayIn, SalonDayOut
 
 DbDep = Annotated[Session, Depends(get_db)]
 
-salon_days = APIRouter(prefix="/salon-days", tags=["cash"], dependencies=[require_role("admin")])
+# Staff too: closing the till ('rozliczenie dnia') is front-desk work. The
+# owner isn't always in the salon. SalonDayOut exposes only day totals, never a
+# per-employee breakdown, so no one's individual numbers leak.
+salon_days = APIRouter(prefix="/salon-days", tags=["cash"], dependencies=[require_role("staff")])
 
 
 def _unregistered(db: Session, day: date) -> Decimal:

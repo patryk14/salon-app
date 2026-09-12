@@ -346,6 +346,9 @@ export default function StaffPortal() {
             onInput={(e) => setMonth((e.target as HTMLInputElement).value)}
           />
         </label>
+        <a class="btn" href="/panel/dzien">
+          Rozliczenie dnia
+        </a>
         <a class="btn" href="/panel/zaopatrzenie">
           Lista zamówień
         </a>

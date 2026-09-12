@@ -46,7 +46,8 @@ const MAX_HOURS = 11;
 
 export default function DailyEntry() {
   const [ready, setReady] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [allowed, setAllowed] = useState(false); // staff OR admin may reconcile a day
+  const [admin, setAdmin] = useState(false); // only admins get the admin nav / back to /panel
   const [day, setDay] = useState(today());
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [hours, setHours] = useState<Record<number, string>>({});
@@ -65,13 +66,13 @@ export default function DailyEntry() {
     (async () => {
       const user = await getUser();
       if (user && !user.expired) {
-        // Staff must never see admin pages, nor that admin exists — bounce them
-        // to their own portal. Anonymous visitors fall through to a neutral login.
-        if (!groupsOf(user).includes('admin')) {
-          window.location.replace('/panel/pracownik');
-          return;
+        const g = groupsOf(user);
+        // Daily reconciliation is front-desk work: staff AND admin. Anonymous
+        // visitors fall through to a neutral login gate below.
+        if (g.includes('staff') || g.includes('admin')) {
+          setAllowed(true);
+          setAdmin(g.includes('admin'));
         }
-        setIsAdmin(true);
       }
       setReady(true);
     })();
@@ -105,8 +106,8 @@ export default function DailyEntry() {
   }
 
   useEffect(() => {
-    if (ready && isAdmin) load();
-  }, [ready, isAdmin, day]);
+    if (ready && allowed) load();
+  }, [ready, allowed, day]);
 
   const forDay = (rows: Entry[], empId: number) =>
     rows.filter((r) => r.employee_id === empId && r.entry_date === day);
@@ -184,7 +185,7 @@ export default function DailyEntry() {
   }
 
   if (!ready) return <p class="muted">Ładowanie…</p>;
-  if (!isAdmin) {
+  if (!allowed) {
     return (
       <div class="gate">
         <h2>Raport dzienny</h2>
@@ -246,6 +247,11 @@ export default function DailyEntry() {
   return (
     <div>
       <div class="bar">
+        {!admin && (
+          <a class="btn" href="/panel/pracownik">
+            ← Mój portal
+          </a>
+        )}
         <label>
           Dzień:{' '}
           <input class="month" type="date" value={day} onInput={(e) => setDay((e.target as HTMLInputElement).value)} />

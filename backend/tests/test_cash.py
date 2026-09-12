@@ -50,7 +50,11 @@ def test_salon_day_reconciliation(db_client: TestClient) -> None:
     assert Decimal(str(r["cash_in_register"])) == Decimal("750")  # 250 + 500 kept
 
 
-def test_salon_day_admin_only(portal_client: TestClient) -> None:
+def test_salon_day_staff_allowed_client_denied(portal_client: TestClient) -> None:
+    # Closing the till is front-desk work: staff allowed, a client rejected.
     portal_client.as_user("staff-sub", {"staff"})
+    assert portal_client.get("/salon-days/2026-09-15").status_code == 200
+    assert portal_client.put("/salon-days/2026-09-15", json={"booksy_cash": "1"}).status_code == 200
+
+    portal_client.as_user("client-sub", {"client"})
     assert portal_client.get("/salon-days/2026-09-15").status_code == 403
-    assert portal_client.put("/salon-days/2026-09-15", json={"booksy_cash": "1"}).status_code == 403

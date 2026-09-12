@@ -31,9 +31,12 @@ from app.schemas import (
 
 DbDep = Annotated[Session, Depends(get_db)]
 
-timesheets = APIRouter(prefix="/timesheets", tags=["worklog"], dependencies=[require_role("admin")])
-ledger = APIRouter(prefix="/ledger", tags=["worklog"], dependencies=[require_role("admin")])
-notebook = APIRouter(prefix="/notebook", tags=["worklog"], dependencies=[require_role("admin")])
+# Daily reconciliation ("rozliczenie dnia") is front-desk work: staff fill the
+# day's hours/cash/notebook for the whole salon at the counter, same as the old
+# paper sheet. The MONTHLY settlement (payouts) stays admin — see settlement.py.
+timesheets = APIRouter(prefix="/timesheets", tags=["worklog"], dependencies=[require_role("staff")])
+ledger = APIRouter(prefix="/ledger", tags=["worklog"], dependencies=[require_role("staff")])
+notebook = APIRouter(prefix="/notebook", tags=["worklog"], dependencies=[require_role("staff")])
 # Staff too: the service catalog feeds the staff portal's own cash-entry
 # dropdown (read-only list of Booksy service names — not sensitive).
 services = APIRouter(prefix="/services", tags=["catalog"], dependencies=[require_role("staff")])
