@@ -7,17 +7,28 @@ existing rows instead of duplicating them. Clients are matched by display name
 """
 
 import logging
+from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.auth import require_role
 from app.booksy import BooksyParseError, VisitRow, parse_visits_report, split_name
+from app.costs import parse_costs
 from app.deps import get_db
-from app.models import BooksyCredential, Client, Visit
+from app.derivation import month_bounds
+from app.models import (
+    BooksyCredential,
+    Client,
+    Employee,
+    EmployeeAlias,
+    LedgerEntry,
+    SalonDay,
+    Visit,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +41,16 @@ class ImportSummary(BaseModel):
     clients_created: int
     visits_created: int
     visits_updated: int
+
+
+class CostImportSummary(BaseModel):
+    year_month: str
+    ledger_created: int
+    salon_days_created: int
+    per_employee: dict[str, str]  # employee name -> month cash sum (zł)
+    unmatched_names: list[str]  # sheet rows no alias resolved — cash dropped
+    checksum_ok: bool  # Σ our cash per day == the sheet's "Gotówka nie wbita" row?
+    checksum_note: str
 
 
 class BooksyCredentialsIn(BaseModel):
@@ -123,6 +144,84 @@ def import_booksy_visits(
     except BooksyParseError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
     return import_visit_rows(db, rows)
+
+
+@router.post("/costs", status_code=status.HTTP_200_OK)
+def import_costs(
+    db: Annotated[Session, Depends(get_db)],
+    year_month: Annotated[str, Form(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")],
+    file: Annotated[UploadFile, File(description="zabiegi_koszty monthly till xlsx")],
+) -> CostImportSummary:
+    """Backfill a month's off-Booksy cash from the zabiegi_koszty sheet. The
+    sheet has no year/month, so the caller names the month. REPLACES that month's
+    ledger + salon_day rows (idempotent re-import; use for historical months, not
+    a month being entered daily)."""
+    from openpyxl import load_workbook
+
+    try:
+        wb = load_workbook(file.file, read_only=True, data_only=True)
+        grid = [list(r) for r in wb.active.iter_rows(values_only=True)]
+    except Exception as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="unreadable xlsx") from e
+
+    # Resolve sheet names (e.g. "Karolina") to employees via aliases + display names.
+    alias_map = dict(db.execute(select(EmployeeAlias.alias, EmployeeAlias.employee_id)).all())
+    name_map = dict(db.execute(select(Employee.display_name, Employee.id)).all())
+    names = dict(db.execute(select(Employee.id, Employee.display_name)).all())
+
+    def resolve(s: str) -> int | None:
+        return alias_map.get(s) or name_map.get(s)
+
+    year, month = (int(p) for p in year_month.split("-"))
+    parsed = parse_costs(grid, year, month, resolve)
+
+    # Replace the month: this import is authoritative for its cash.
+    start, end = month_bounds(year_month)
+    db.execute(
+        delete(LedgerEntry).where(LedgerEntry.entry_date >= start, LedgerEntry.entry_date < end)
+    )
+    db.execute(delete(SalonDay).where(SalonDay.day >= start, SalonDay.day < end))
+    for emp_id, d, amt in parsed.ledger:
+        db.add(
+            LedgerEntry(
+                employee_id=emp_id, entry_date=d, service_name="Gotówka (arkusz)", amount_pln=amt
+            )
+        )
+    salon_days_created = 0
+    for d, vals in parsed.salon_days.items():
+        db.add(
+            SalonDay(
+                day=d,
+                booksy_cash=vals.get("booksy_cash", Decimal("0")),
+                fiscal_register=vals.get("fiscal_register", Decimal("0")),
+            )
+        )
+        salon_days_created += 1
+    db.flush()
+
+    # Checksum: our Σ ledger per day vs the sheet's own "Gotówka nie wbita" row.
+    by_day: dict = {}
+    for _emp, d, amt in parsed.ledger:
+        by_day[d] = by_day.get(d, Decimal("0")) + amt
+    mismatched = [
+        d for d, exp in parsed.unregistered_by_day.items() if by_day.get(d, Decimal("0")) != exp
+    ]
+    if mismatched:
+        days = [d.isoformat() for d in sorted(mismatched)[:5]]
+        note = f"rozjazd w {len(mismatched)} dniach: {days}"
+    else:
+        note = "suma gotówki zgadza się z wierszem kontrolnym arkusza"
+    summary = CostImportSummary(
+        year_month=year_month,
+        ledger_created=len(parsed.ledger),
+        salon_days_created=salon_days_created,
+        per_employee={names.get(eid, f"#{eid}"): str(s) for eid, s in parsed.per_employee.items()},
+        unmatched_names=sorted(set(parsed.unmatched_names)),
+        checksum_ok=not mismatched,
+        checksum_note=note,
+    )
+    logger.info("costs import %s: %s", year_month, summary.model_dump())
+    return summary
 
 
 @router.put("/booksy/credentials", status_code=status.HTTP_204_NO_CONTENT)

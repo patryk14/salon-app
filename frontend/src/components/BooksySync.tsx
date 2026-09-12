@@ -11,6 +11,20 @@ interface PullSummary {
   visits_created: number;
   visits_updated: number;
 }
+interface CostSummary {
+  year_month: string;
+  ledger_created: number;
+  salon_days_created: number;
+  per_employee: Record<string, string>;
+  unmatched_names: string[];
+  checksum_ok: boolean;
+  checksum_note: string;
+}
+
+function thisYm(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
 
 function monthRange(): { from: string; till: string } {
   const d = new Date();
@@ -42,6 +56,11 @@ export default function BooksySync() {
   const [from, setFrom] = useState(init.from);
   const [till, setTill] = useState(init.till);
   const [summary, setSummary] = useState<PullSummary | null>(null);
+
+  // costs (zabiegi_koszty) import
+  const [costMonth, setCostMonth] = useState(thisYm());
+  const [costFile, setCostFile] = useState<File | null>(null);
+  const [costSummary, setCostSummary] = useState<CostSummary | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -100,6 +119,29 @@ export default function BooksySync() {
       });
       setSummary(s);
       setOk('Zsynchronizowano.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function importCosts() {
+    setError(null);
+    setOk(null);
+    setCostSummary(null);
+    if (!costFile) {
+      setError('Wybierz plik .xlsx arkusza gotówki.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('year_month', costMonth);
+      fd.append('file', costFile);
+      const s = await apiFetch<CostSummary>('/imports/costs', { method: 'POST', body: fd });
+      setCostSummary(s);
+      setOk(`Zaimportowano gotówkę za ${s.year_month}.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -186,6 +228,48 @@ export default function BooksySync() {
               <li>Nowych wizyt: <b>{summary.visits_created}</b></li>
               <li>Zaktualizowanych: <b>{summary.visits_updated}</b></li>
               <li>Nowych klientek: <b>{summary.clients_created}</b></li>
+            </ul>
+          )}
+        </div>
+
+        <div class="empcard">
+          <div class="secthead">3. Import arkusza gotówki (miesiąc)</div>
+          <p class="muted small">
+            Plik <code>zabiegi_koszty</code> jako <code>.xlsx</code> (Excel → Zapisz jako). Gotówka
+            „nie wbita" per pracownica + kasa fiskalna trafią do wybranego miesiąca. <b>Zastępuje</b>{' '}
+            dane gotówkowe tego miesiąca — do backfillu historii. Działa też na starszych miesiącach.
+          </p>
+          <div class="frm">
+            <label>
+              miesiąc
+              <input class="fld" type="month" value={costMonth} onInput={(e) => setCostMonth((e.target as HTMLInputElement).value)} />
+            </label>
+            <label>
+              plik .xlsx
+              <input
+                class="fld"
+                type="file"
+                accept=".xlsx"
+                onInput={(e) => setCostFile((e.target as HTMLInputElement).files?.[0] ?? null)}
+              />
+            </label>
+            <button class="btn primary" disabled={busy} onClick={importCosts}>
+              {busy ? 'Importuję…' : 'Importuj gotówkę'}
+            </button>
+          </div>
+          {costSummary && (
+            <ul class="summary">
+              <li>Wpisów gotówki: <b>{costSummary.ledger_created}</b> · dni kasy: <b>{costSummary.salon_days_created}</b></li>
+              {Object.entries(costSummary.per_employee).map(([n, s]) => (
+                <li key={n}>{n}: <b>{Number(s).toLocaleString('pl-PL')} zł</b></li>
+              ))}
+              {costSummary.unmatched_names.length > 0 && (
+                <li class="warn">Bez aliasu (gotówka pominięta): {costSummary.unmatched_names.join(', ')}</li>
+              )}
+              <li class={costSummary.checksum_ok ? 'okrow' : 'warn'}>
+                {costSummary.checksum_ok ? '✓ ' : '⚠ '}
+                {costSummary.checksum_note}
+              </li>
             </ul>
           )}
         </div>

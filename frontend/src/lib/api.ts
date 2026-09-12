@@ -18,7 +18,8 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   const token = await getAccessToken();
   const headers = new Headers(init.headers);
   if (token) headers.set('Authorization', `Bearer ${token}`);
-  if (init.body && !headers.has('Content-Type')) {
+  // JSON by default, but let the browser set the multipart boundary for uploads.
+  if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
 
