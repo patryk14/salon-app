@@ -73,7 +73,15 @@ export default function SettlementPanel() {
   useEffect(() => {
     (async () => {
       const user = await getUser();
-      if (user && !user.expired) setIsAdmin(groupsOf(user).includes('admin'));
+      if (user && !user.expired) {
+        // Staff must never see admin pages, nor that admin exists — bounce them
+        // to their own portal. Anonymous visitors fall through to a neutral login.
+        if (!groupsOf(user).includes('admin')) {
+          window.location.replace('/panel/pracownik');
+          return;
+        }
+        setIsAdmin(true);
+      }
       setReady(true);
     })();
   }, []);
@@ -218,17 +226,14 @@ export default function SettlementPanel() {
   if (!ready) return <p class="muted">Ładowanie…</p>;
 
   if (!isAdmin) {
+    // Only anonymous visitors reach here — staff were redirected to their portal.
     return (
       <div class="gate">
-        <h2>Panel administratora</h2>
-        <p class="muted">Zaloguj się kontem właścicielki, aby zobaczyć rozliczenia.</p>
+        <h2>Charm Skin</h2>
+        <p class="muted">Zaloguj się, aby kontynuować.</p>
         <button class="btn primary" onClick={() => login()}>
           Zaloguj przez Cognito
         </button>
-        <p class="muted small">
-          Jeśli jesteś zalogowana, ale to widzisz — konto nie ma roli <code>admin</code>.
-          Pracownice mają swój widok: <a href="/panel/pracownik">portal pracownicy</a>.
-        </p>
       </div>
     );
   }

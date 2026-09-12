@@ -43,8 +43,12 @@ export default function VisitsBrowser() {
     (async () => {
       const user = await getUser();
       if (user && !user.expired) {
-        const g = groupsOf(user);
-        setIsStaff(g.includes('staff') || g.includes('admin'));
+        // Browsing ALL clients' visits is admin-only; staff go to their portal.
+        if (!groupsOf(user).includes('admin')) {
+          window.location.replace('/panel/pracownik');
+          return;
+        }
+        setIsStaff(true);
       }
       setReady(true);
     })();
@@ -70,7 +74,7 @@ export default function VisitsBrowser() {
     return (
       <div class="gate">
         <h2>Wizyty</h2>
-        <p class="muted">Zaloguj się kontem pracownicy lub właścicielki.</p>
+        <p class="muted">Zaloguj się, aby kontynuować.</p>
         <button class="btn primary" onClick={() => login()}>
           Zaloguj przez Cognito
         </button>

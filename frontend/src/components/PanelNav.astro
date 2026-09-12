@@ -1,51 +1,12 @@
 ---
-// Shared admin navigation, grouped into sections (Rozliczenia / Zespół /
-// Operacje) so the panel stays legible as pages grow. Rendered at the top of
-// every admin page; the island bars keep only their functional controls.
-// Uses the CSS vars each page already defines on :root.
-const path = Astro.url.pathname.replace(/\/$/, '') || '/panel';
-const groups: { title: string; links: [string, string][] }[] = [
-  {
-    title: 'Rozliczenia',
-    links: [
-      ['/panel', 'Rozliczenie'],
-      ['/panel/dzien', 'Raport dzienny'],
-      ['/panel/wizyty', 'Wizyty'],
-      ['/panel/booksy', 'Booksy'],
-      ['/panel/aliasy', 'Aliasy'],
-    ],
-  },
-  {
-    title: 'Zespół',
-    links: [
-      ['/panel/konta', 'Konta'],
-      ['/panel/dokumenty', 'Dokumenty'],
-      ['/panel/dyspozycyjnosc', 'Grafik'],
-    ],
-  },
-  {
-    title: 'Operacje',
-    links: [['/panel/zaopatrzenie', 'Zamówienia']],
-  },
-];
+// Shared admin navigation wrapper. The links live in a client island
+// (PanelNavLinks) that renders ONLY for a logged-in admin, so anonymous
+// visitors and staff never see the admin page structure. This file only
+// carries the (global) styles + mounts the island.
+import PanelNavLinks from './PanelNavLinks.tsx';
 ---
 
-<nav class="pnav">
-  {
-    groups.map((g) => (
-      <div class="pnav-group">
-        <span class="pnav-title">{g.title}</span>
-        <div class="pnav-links">
-          {g.links.map(([href, label]) => (
-            <a href={href} class:list={['pnav-link', { active: path === href }]}>
-              {label}
-            </a>
-          ))}
-        </div>
-      </div>
-    ))
-  }
-</nav>
+<PanelNavLinks client:only="preact" />
 
 <style is:global>
   .pnav { display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; margin-bottom: 1.4rem; padding-bottom: .9rem; border-bottom: 1px solid var(--line); }

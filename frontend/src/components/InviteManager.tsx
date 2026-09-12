@@ -30,7 +30,15 @@ export default function InviteManager() {
   useEffect(() => {
     (async () => {
       const user = await getUser();
-      if (user && !user.expired) setIsAdmin(groupsOf(user).includes('admin'));
+      if (user && !user.expired) {
+        // Staff must never see admin pages, nor that admin exists — bounce them
+        // to their own portal. Anonymous visitors fall through to a neutral login.
+        if (!groupsOf(user).includes('admin')) {
+          window.location.replace('/panel/pracownik');
+          return;
+        }
+        setIsAdmin(true);
+      }
       setReady(true);
     })();
   }, []);
@@ -78,7 +86,7 @@ export default function InviteManager() {
     return (
       <div class="gate">
         <h2>Konta pracownic</h2>
-        <p class="muted">Zaloguj się kontem właścicielki.</p>
+        <p class="muted">Zaloguj się, aby kontynuować.</p>
         <button class="btn primary" onClick={() => login()}>
           Zaloguj przez Cognito
         </button>

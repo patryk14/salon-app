@@ -16,6 +16,7 @@ interface Item {
 export default function SupplyList() {
   const [ready, setReady] = useState(false);
   const [isStaff, setIsStaff] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [items, setItems] = useState<Item[]>([]);
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +28,7 @@ export default function SupplyList() {
       if (user && !user.expired) {
         const g = groupsOf(user);
         setIsStaff(g.includes('staff') || g.includes('admin'));
+        setIsAdmin(g.includes('admin'));
       }
       setReady(true);
     })();
@@ -83,7 +85,7 @@ export default function SupplyList() {
     return (
       <div class="gate">
         <h2>Lista zamówień</h2>
-        <p class="muted">Zaloguj się kontem pracownicy lub właścicielki.</p>
+        <p class="muted">Zaloguj się, aby kontynuować.</p>
         <button class="btn primary" onClick={() => login()}>
           Zaloguj przez Cognito
         </button>
@@ -97,11 +99,9 @@ export default function SupplyList() {
   return (
     <div>
       <div class="bar">
-        <a class="btn" href="/panel">
-          ← Rozliczenia
-        </a>
-        <a class="btn" href="/panel/pracownik">
-          Portal pracownicy
+        {/* Role-aware back link: staff must not see that an admin panel exists. */}
+        <a class="btn" href={isAdmin ? '/panel' : '/panel/pracownik'}>
+          {isAdmin ? '← Panel' : '← Mój portal'}
         </a>
       </div>
 
