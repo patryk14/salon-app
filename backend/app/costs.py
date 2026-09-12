@@ -51,13 +51,24 @@ def _num(cell: object) -> Decimal | None:
 
 
 def _day_columns(header: list[object]) -> dict[int, int]:
-    """Map column index -> day number, from the header row's 1..31 cells."""
+    """Map column index -> day number, from a header row's 1..31 cells."""
     cols: dict[int, int] = {}
     for i, cell in enumerate(header):
         s = str(cell).strip() if cell is not None else ""
-        if s.isdigit():
-            cols[i] = int(s)
+        if s.replace(".0", "").isdigit():
+            d = int(float(s))
+            if 1 <= d <= 31:
+                cols[i] = d
     return cols
+
+
+def find_header_row(grid: list[list[object]]) -> int | None:
+    """The day-number header may not be the first row (title rows, merged cells).
+    Find the first row that carries a run of day numbers 1..31."""
+    for idx, row in enumerate(grid[:20]):
+        if len(_day_columns(row)) >= 8:
+            return idx
+    return None
 
 
 def parse_costs(
@@ -67,9 +78,10 @@ def parse_costs(
     resolve: Callable[[str], int | None],
 ) -> ParsedCosts:
     out = ParsedCosts()
-    if not grid:
+    hdr = find_header_row(grid)
+    if hdr is None:
         return out
-    day_cols = _day_columns(grid[0])
+    day_cols = _day_columns(grid[hdr])
     last_day = calendar.monthrange(year, month)[1]  # skip col 31 in a 30-day month
 
     def day_cells(row: list[object]):
@@ -81,7 +93,7 @@ def parse_costs(
                 yield date(year, month, day), v
 
     current_emp: int | None = None
-    for row in grid[1:]:
+    for row in grid[hdr + 1 :]:
         first = str(row[0]).strip() if row and row[0] is not None else ""
         low = first.lower()
         if not first:

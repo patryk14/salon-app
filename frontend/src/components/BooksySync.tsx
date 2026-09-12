@@ -19,6 +19,8 @@ interface CostSummary {
   unmatched_names: string[];
   checksum_ok: boolean;
   checksum_note: string;
+  sheet_used: string | null;
+  sheets_seen: string[];
 }
 
 function thisYm(): string {
@@ -260,6 +262,9 @@ export default function BooksySync() {
           {costSummary && (
             <ul class="summary">
               <li>Wpisów gotówki: <b>{costSummary.ledger_created}</b> · dni kasy: <b>{costSummary.salon_days_created}</b></li>
+              <li class="muted small">
+                zakładka: <b>{costSummary.sheet_used ?? '—'}</b> · w pliku: {costSummary.sheets_seen.join(', ') || '—'}
+              </li>
               {Object.entries(costSummary.per_employee).map(([n, s]) => (
                 <li key={n}>{n}: <b>{Number(s).toLocaleString('pl-PL')} zł</b></li>
               ))}

@@ -51,6 +51,8 @@ class CostImportSummary(BaseModel):
     unmatched_names: list[str]  # sheet rows no alias resolved — cash dropped
     checksum_ok: bool  # Σ our cash per day == the sheet's "Gotówka nie wbita" row?
     checksum_note: str
+    sheet_used: str | None = None  # which workbook tab the data came from
+    sheets_seen: list[str] = []  # all tabs (helps when nothing parsed)
 
 
 class BooksyCredentialsIn(BaseModel):
@@ -160,7 +162,6 @@ def import_costs(
 
     try:
         wb = load_workbook(file.file, read_only=True, data_only=True)
-        grid = [list(r) for r in wb.active.iter_rows(values_only=True)]
     except Exception as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="unreadable xlsx") from e
 
@@ -173,31 +174,47 @@ def import_costs(
         return alias_map.get(s) or name_map.get(s)
 
     year, month = (int(p) for p in year_month.split("-"))
-    parsed = parse_costs(grid, year, month, resolve)
 
-    # Replace the month: this import is authoritative for its cash.
-    start, end = month_bounds(year_month)
-    db.execute(
-        delete(LedgerEntry).where(LedgerEntry.entry_date >= start, LedgerEntry.entry_date < end)
-    )
-    db.execute(delete(SalonDay).where(SalonDay.day >= start, SalonDay.day < end))
-    for emp_id, d, amt in parsed.ledger:
-        db.add(
-            LedgerEntry(
-                employee_id=emp_id, entry_date=d, service_name="Gotówka (arkusz)", amount_pln=amt
-            )
-        )
+    # A yearly workbook has many tabs (title rows, per-month sheets) — parse every
+    # sheet and keep the one that actually yields till data.
+    sheets_seen = list(wb.sheetnames)
+    parsed = parse_costs([], year, month, resolve)
+    sheet_used: str | None = None
+    for ws in wb.worksheets:
+        grid = [list(r) for r in ws.iter_rows(values_only=True)]
+        cand = parse_costs(grid, year, month, resolve)
+        if len(cand.ledger) > len(parsed.ledger) or (sheet_used is None and cand.salon_days):
+            parsed, sheet_used = cand, ws.title
+
+    # Nothing recognised — don't wipe existing cash; return the tab list so the
+    # owner can see what the file actually contained.
     salon_days_created = 0
-    for d, vals in parsed.salon_days.items():
-        db.add(
-            SalonDay(
-                day=d,
-                booksy_cash=vals.get("booksy_cash", Decimal("0")),
-                fiscal_register=vals.get("fiscal_register", Decimal("0")),
-            )
+    if parsed.ledger or parsed.salon_days:
+        # Replace the month: this import is authoritative for its cash.
+        start, end = month_bounds(year_month)
+        db.execute(
+            delete(LedgerEntry).where(LedgerEntry.entry_date >= start, LedgerEntry.entry_date < end)
         )
-        salon_days_created += 1
-    db.flush()
+        db.execute(delete(SalonDay).where(SalonDay.day >= start, SalonDay.day < end))
+        for emp_id, d, amt in parsed.ledger:
+            db.add(
+                LedgerEntry(
+                    employee_id=emp_id,
+                    entry_date=d,
+                    service_name="Gotówka (arkusz)",
+                    amount_pln=amt,
+                )
+            )
+        for d, vals in parsed.salon_days.items():
+            db.add(
+                SalonDay(
+                    day=d,
+                    booksy_cash=vals.get("booksy_cash", Decimal("0")),
+                    fiscal_register=vals.get("fiscal_register", Decimal("0")),
+                )
+            )
+            salon_days_created += 1
+        db.flush()
 
     # Checksum: our Σ ledger per day vs the sheet's own "Gotówka nie wbita" row.
     by_day: dict = {}
@@ -206,7 +223,9 @@ def import_costs(
     mismatched = [
         d for d, exp in parsed.unregistered_by_day.items() if by_day.get(d, Decimal("0")) != exp
     ]
-    if mismatched:
+    if not parsed.ledger and not parsed.salon_days:
+        note = f"nie znaleziono danych kasy w pliku (zakładki: {', '.join(sheets_seen)})"
+    elif mismatched:
         days = [d.isoformat() for d in sorted(mismatched)[:5]]
         note = f"rozjazd w {len(mismatched)} dniach: {days}"
     else:
@@ -217,8 +236,10 @@ def import_costs(
         salon_days_created=salon_days_created,
         per_employee={names.get(eid, f"#{eid}"): str(s) for eid, s in parsed.per_employee.items()},
         unmatched_names=sorted(set(parsed.unmatched_names)),
-        checksum_ok=not mismatched,
+        checksum_ok=not mismatched and bool(parsed.ledger),
         checksum_note=note,
+        sheet_used=sheet_used,
+        sheets_seen=sheets_seen,
     )
     logger.info("costs import %s: %s", year_month, summary.model_dump())
     return summary
