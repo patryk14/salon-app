@@ -92,6 +92,16 @@ def test_costs_import_replaces_month(db_client: TestClient) -> None:
     assert len(total) == 4
 
 
+def test_pick_month_sheet() -> None:
+    from app.costs import pick_month_sheet
+
+    tabs = ["Marzec", "Styczen", "Kwiecien 2026", "sierpień 2026", "Sierpien", "Szablon"]
+    assert pick_month_sheet(tabs, 2026, 8) == "sierpień 2026"  # year-tagged wins over bare
+    assert pick_month_sheet(tabs, 2026, 1) == "Styczen"  # bare month, no year
+    assert pick_month_sheet(tabs, 2026, 4) == "Kwiecien 2026"
+    assert pick_month_sheet(tabs, 2026, 12) is None  # no December tab
+
+
 def test_costs_import_admin_only(portal_client: TestClient) -> None:
     portal_client.as_user("staff-sub", {"staff"})
     r = portal_client.post(

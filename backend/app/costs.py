@@ -62,6 +62,51 @@ def _day_columns(header: list[object]) -> dict[int, int]:
     return cols
 
 
+_PL_MONTHS = {
+    "styczen": 1,
+    "luty": 2,
+    "marzec": 3,
+    "kwiecien": 4,
+    "maj": 5,
+    "czerwiec": 6,
+    "lipiec": 7,
+    "sierpien": 8,
+    "wrzesien": 9,
+    "pazdziernik": 10,
+    "listopad": 11,
+    "grudzien": 12,
+}
+
+
+def _norm(s: str) -> str:
+    return s.lower().translate(str.maketrans("ąćęłńóśźż", "acelnoszz"))
+
+
+def pick_month_sheet(sheet_names: list[str], year: int, month: int) -> str | None:
+    """A yearly workbook has one tab per month (Polish names, inconsistent: some
+    carry the year, some don't, e.g. 'sierpień 2026' vs 'Sierpien'). Pick the tab
+    whose month matches; prefer one that also names the year, else a year-less
+    tab, else the first candidate."""
+    year_s = str(year)
+    cands: list[tuple[str, bool, bool]] = []  # (name, has_year, matches_year)
+    for name in sheet_names:
+        n = _norm(name)
+        for kw, mm in _PL_MONTHS.items():
+            if mm == month and kw in n:
+                has_year = any(str(y) in n for y in range(2020, 2031))
+                cands.append((name, has_year, year_s in n))
+                break
+    if not cands:
+        return None
+    for name, _has, matches in cands:
+        if matches:
+            return name
+    for name, has, _m in cands:
+        if not has:
+            return name
+    return cands[0][0]
+
+
 def find_header_row(grid: list[list[object]]) -> int | None:
     """The day-number header may not be the first row (title rows, merged cells).
     Find the first row that carries a run of day numbers 1..31."""

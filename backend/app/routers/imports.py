@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import require_role
 from app.booksy import BooksyParseError, VisitRow, parse_visits_report, split_name
-from app.costs import parse_costs
+from app.costs import parse_costs, pick_month_sheet
 from app.deps import get_db
 from app.derivation import month_bounds
 from app.models import (
@@ -175,16 +175,22 @@ def import_costs(
 
     year, month = (int(p) for p in year_month.split("-"))
 
-    # A yearly workbook has many tabs (title rows, per-month sheets) — parse every
-    # sheet and keep the one that actually yields till data.
+    # A yearly workbook has one tab per month (Polish names). Match the chosen
+    # month to its tab by name; only if that fails fall back to a content scan.
     sheets_seen = list(wb.sheetnames)
-    parsed = parse_costs([], year, month, resolve)
+    chosen = pick_month_sheet(sheets_seen, year, month)
     sheet_used: str | None = None
-    for ws in wb.worksheets:
-        grid = [list(r) for r in ws.iter_rows(values_only=True)]
-        cand = parse_costs(grid, year, month, resolve)
-        if len(cand.ledger) > len(parsed.ledger) or (sheet_used is None and cand.salon_days):
-            parsed, sheet_used = cand, ws.title
+    if chosen is not None:
+        grid = [list(r) for r in wb[chosen].iter_rows(values_only=True)]
+        parsed = parse_costs(grid, year, month, resolve)
+        sheet_used = chosen
+    else:
+        parsed = parse_costs([], year, month, resolve)
+        for ws in wb.worksheets:
+            grid = [list(r) for r in ws.iter_rows(values_only=True)]
+            cand = parse_costs(grid, year, month, resolve)
+            if len(cand.ledger) > len(parsed.ledger):
+                parsed, sheet_used = cand, ws.title
 
     # Nothing recognised — don't wipe existing cash; return the tab list so the
     # owner can see what the file actually contained.
