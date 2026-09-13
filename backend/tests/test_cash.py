@@ -50,6 +50,21 @@ def test_salon_day_reconciliation(db_client: TestClient) -> None:
     assert Decimal(str(r["cash_in_register"])) == Decimal("750")  # 250 + 500 kept
 
 
+def test_salon_month_summary(db_client: TestClient) -> None:
+    e = _emp(db_client, "A")
+    _cash(db_client, e, "2026-09-02", "150")
+    _cash(db_client, e, "2026-09-05", "80")  # unregistered = 230
+    db_client.put("/salon-days/2026-09-02", json={"booksy_cash": "500", "fiscal_register": "3600"})
+    db_client.put("/salon-days/2026-09-05", json={"booksy_cash": "100", "fiscal_register": "900"})
+
+    s = db_client.get("/salon-days/summary", params={"month": "2026-09"}).json()
+    assert Decimal(str(s["fiscal_register"])) == 4500  # 3600 + 900
+    assert Decimal(str(s["booksy_cash"])) == 600  # 500 + 100
+    assert Decimal(str(s["unregistered_cash"])) == 230  # 150 + 80
+    assert Decimal(str(s["cash_total"])) == 830  # booksy 600 + unregistered 230
+    assert Decimal(str(s["money_total"])) == 4730  # fiscal 4500 + unregistered 230
+
+
 def test_salon_day_staff_allowed_client_denied(portal_client: TestClient) -> None:
     # Closing the till is front-desk work: staff allowed, a client rejected.
     portal_client.as_user("staff-sub", {"staff"})

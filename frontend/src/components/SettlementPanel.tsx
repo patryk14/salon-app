@@ -35,6 +35,13 @@ interface Readiness {
   ok: boolean;
   warnings: { employee: string; kind: string; message: string }[];
 }
+interface Kasa {
+  fiscal_register: string;
+  booksy_cash: string;
+  unregistered_cash: string;
+  cash_total: string;
+  money_total: string;
+}
 
 const INPUT_FIELDS = [
   ['booksy_services', 'Booksy usł.'],
@@ -67,6 +74,7 @@ export default function SettlementPanel() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [period, setPeriod] = useState<Period | null>(null);
   const [readiness, setReadiness] = useState<Readiness | null>(null);
+  const [kasa, setKasa] = useState<Kasa | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -91,13 +99,15 @@ export default function SettlementPanel() {
     try {
       // Both hit Aurora; fire them together so the ~15 s cold-start (min-0-ACU
       // resume) is paid once, not twice.
-      const [emps, p] = await Promise.all([
+      const [emps, p, k] = await Promise.all([
         apiFetch<Employee[]>('/employees'),
         apiFetch<Period>(`/settlement/periods/${ym}`).catch((e) => {
           if (e instanceof ApiError && e.status === 404) return null;
           throw e;
         }),
+        apiFetch<Kasa>(`/salon-days/summary?month=${ym}`).catch(() => null),
       ]);
+      setKasa(k);
       setEmployees(emps.filter((e) => e.is_active));
       setPeriod(p);
       await loadReadiness(p);
@@ -241,6 +251,11 @@ export default function SettlementPanel() {
   const closed = period?.status === 'closed';
   const canEdit = Boolean(period) && !closed;
   const total = (period?.lines ?? []).reduce((s, l) => s + Number(l.total_payout), 0);
+  const colSum = (f: string) =>
+    (period?.lines ?? []).reduce(
+      (s, l) => s + Number((l as unknown as Record<string, string>)[f] || 0),
+      0,
+    );
 
   return (
     <div>
@@ -369,12 +384,48 @@ export default function SettlementPanel() {
             <tfoot>
               <tr>
                 <td>Razem</td>
-                <td colSpan={9}></td>
+                {INPUT_FIELDS.map(([field]) => (
+                  <td class="out">{pln(String(colSum(field)), field === 'hours' ? 1 : 0)}</td>
+                ))}
+                <td class="out">{pln(String(colSum('services_base')))}</td>
+                <td></td>
+                <td class="out">{pln(String(colSum('services_commission')), 2)}</td>
+                <td class="out">{pln(String(colSum('hours_pay')), 2)}</td>
                 <td class="payout">{pln(String(total))} zł</td>
                 <td></td>
               </tr>
             </tfoot>
           </table>
+        </div>
+      )}
+
+      {kasa && (
+        <div class="kasa">
+          <h3>Kasa — {ym}</h3>
+          <div class="kasagrid">
+            <div class="kf">
+              <span class="kl">Kasa fiskalna</span>
+              <span class="kv">{pln(kasa.fiscal_register)} zł</span>
+            </div>
+            <div class="kf">
+              <span class="kl">Gotówka z Booksy</span>
+              <span class="kv">{pln(kasa.booksy_cash)} zł</span>
+            </div>
+            <div class="kf">
+              <span class="kl">Gotówka nie wbita</span>
+              <span class="kv">{pln(kasa.unregistered_cash)} zł</span>
+            </div>
+            <div class="kf hi">
+              <span class="kl">Suma gotówki w kasie</span>
+              <span class="kv">{pln(kasa.cash_total)} zł</span>
+              <span class="kh">Booksy + nie wbita</span>
+            </div>
+            <div class="kf hi">
+              <span class="kl">Prawdziwa suma pieniędzy</span>
+              <span class="kv">{pln(kasa.money_total)} zł</span>
+              <span class="kh">fiskalna + nie wbita</span>
+            </div>
+          </div>
         </div>
       )}
     </div>

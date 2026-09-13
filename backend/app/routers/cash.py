@@ -10,21 +10,47 @@ from datetime import date
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth import require_role
 from app.deps import get_db
+from app.derivation import month_bounds
 from app.models import LedgerEntry, SalonDay
-from app.schemas import SalonDayIn, SalonDayOut
+from app.schemas import MonthlyKasaOut, SalonDayIn, SalonDayOut
 
 DbDep = Annotated[Session, Depends(get_db)]
+MonthQuery = Annotated[str, Query(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")]
 
 # Staff too: closing the till ('rozliczenie dnia') is front-desk work. The
 # owner isn't always in the salon. SalonDayOut exposes only day totals, never a
 # per-employee breakdown, so no one's individual numbers leak.
 salon_days = APIRouter(prefix="/salon-days", tags=["cash"], dependencies=[require_role("staff")])
+
+
+@salon_days.get("/summary")
+def salon_month_summary(db: DbDep, month: MonthQuery) -> MonthlyKasaOut:
+    """A month's till reconciliation (salon-wide). Registered BEFORE /{day} so
+    the literal 'summary' isn't parsed as a date."""
+    start, end = month_bounds(month)
+
+    def total(col, *where) -> Decimal:
+        return Decimal(str(db.scalar(select(func.coalesce(func.sum(col), 0)).where(*where))))
+
+    fiscal = total(SalonDay.fiscal_register, SalonDay.day >= start, SalonDay.day < end)
+    booksy = total(SalonDay.booksy_cash, SalonDay.day >= start, SalonDay.day < end)
+    unreg = total(
+        LedgerEntry.amount_pln, LedgerEntry.entry_date >= start, LedgerEntry.entry_date < end
+    )
+    return MonthlyKasaOut(
+        year_month=month,
+        fiscal_register=fiscal,
+        booksy_cash=booksy,
+        unregistered_cash=unreg,
+        cash_total=booksy + unreg,
+        money_total=fiscal + unreg,
+    )
 
 
 def _unregistered(db: Session, day: date) -> Decimal:

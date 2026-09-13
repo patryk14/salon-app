@@ -486,3 +486,15 @@ class SalonDayOut(BaseModel):
     unregistered_cash: Decimal  # "gotówka nie wbita"
     cash_in_register: Decimal  # unregistered + booksy_cash ("suma gotówki w kasie")
     note: str | None
+
+
+class MonthlyKasaOut(BaseModel):
+    """A month's till reconciliation (salon-wide). All summed/derived, nothing
+    stored twice."""
+
+    year_month: str
+    fiscal_register: Decimal  # Σ kasa fiskalna
+    booksy_cash: Decimal  # Σ gotówka z Booksy
+    unregistered_cash: Decimal  # Σ gotówka nie wbita (z ewidencji)
+    cash_total: Decimal  # booksy_cash + unregistered ("prawdziwa suma gotówki")
+    money_total: Decimal  # fiscal_register + unregistered ("prawdziwa suma pieniędzy")

@@ -71,6 +71,16 @@ import PanelNav from '../../components/PanelNav.astro';
       .wkind { display: inline-block; font-size: .66rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--draft); background: var(--card); border: 1px solid var(--draft); border-radius: 5px; padding: .05rem .35rem; margin-right: .5rem; }
       .okline { color: var(--pay); font-weight: 600; font-size: .9rem; margin: 0 0 1rem; }
 
+      .kasa { margin-top: 1.4rem; }
+      .kasa h3 { font-size: 1.05rem; margin: 0 0 .6rem; }
+      .kasagrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .7rem; }
+      .kf { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: .7rem .9rem; display: flex; flex-direction: column; gap: .15rem; }
+      .kf.hi { border-color: var(--accent); background: var(--accent-soft); }
+      .kl { font-size: .66rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+      .kf.hi .kl { color: var(--accent); }
+      .kv { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+      .kh { font-size: .72rem; color: var(--muted); }
+
       .scroll { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
       table { border-collapse: collapse; width: 100%; min-width: 860px; font-variant-numeric: tabular-nums; }
       th, td { padding: .55rem .6rem; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
