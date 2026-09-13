@@ -38,6 +38,7 @@ interface Readiness {
 interface Kasa {
   fiscal_register: string;
   booksy_cash: string;
+  card: string;
   unregistered_cash: string;
   cash_total: string;
   money_total: string;
@@ -406,6 +407,11 @@ export default function SettlementPanel() {
             <div class="kf">
               <span class="kl">Kasa fiskalna</span>
               <span class="kv">{pln(kasa.fiscal_register)} zł</span>
+              <span class="kh">gotówka + karta (z rejestrów)</span>
+            </div>
+            <div class="kf">
+              <span class="kl">Karta / terminal</span>
+              <span class="kv">{pln(kasa.card)} zł</span>
             </div>
             <div class="kf">
               <span class="kl">Gotówka z Booksy</span>

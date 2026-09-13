@@ -14,13 +14,19 @@ interface PullSummary {
 interface CostSummary {
   year_month: string;
   ledger_created: number;
-  salon_days_created: number;
   per_employee: Record<string, string>;
   unmatched_names: string[];
   checksum_ok: boolean;
   checksum_note: string;
   sheet_used: string | null;
   sheets_seen: string[];
+}
+
+interface RegSummary {
+  days: number;
+  sessions: number;
+  cash_total: string;
+  fiscal_total: string;
 }
 
 function thisYm(): string {
@@ -63,6 +69,7 @@ export default function BooksySync() {
   const [costMonth, setCostMonth] = useState(thisYm());
   const [costFile, setCostFile] = useState<File | null>(null);
   const [costSummary, setCostSummary] = useState<CostSummary | null>(null);
+  const [regSummary, setRegSummary] = useState<RegSummary | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -144,6 +151,25 @@ export default function BooksySync() {
       const s = await apiFetch<CostSummary>('/imports/costs', { method: 'POST', body: fd });
       setCostSummary(s);
       setOk(`Zaimportowano gotówkę za ${s.year_month}.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function pullRegisters() {
+    setError(null);
+    setOk(null);
+    setRegSummary(null);
+    setBusy(true);
+    try {
+      const s = await apiFetch<RegSummary>('/imports/booksy/registers', {
+        method: 'POST',
+        body: JSON.stringify({ date_from: from, date_till: till }),
+      });
+      setRegSummary(s);
+      setOk('Kasa zaciągnięta z rejestrów.');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -237,9 +263,10 @@ export default function BooksySync() {
         <div class="empcard">
           <div class="secthead">3. Import arkusza gotówki (miesiąc)</div>
           <p class="muted small">
-            Plik <code>zabiegi_koszty</code> jako <code>.xlsx</code> (Excel → Zapisz jako). Gotówka
-            „nie wbita" per pracownica + kasa fiskalna trafią do wybranego miesiąca. <b>Zastępuje</b>{' '}
-            dane gotówkowe tego miesiąca — do backfillu historii. Działa też na starszych miesiącach.
+            Plik <code>zabiegi_koszty</code> jako <code>.xlsx</code> (Excel → Zapisz jako). Wciąga
+            tylko <b>gotówkę nie wbitą per pracownica</b> do wybranego miesiąca (kasa fiskalna i
+            gotówka z Booksy idą automatem z rejestrów — karta 4). <b>Zastępuje</b> gotówkę tego
+            miesiąca; działa też na starszych.
           </p>
           <div class="frm">
             <label>
@@ -261,7 +288,7 @@ export default function BooksySync() {
           </div>
           {costSummary && (
             <ul class="summary">
-              <li>Wpisów gotówki: <b>{costSummary.ledger_created}</b> · dni kasy: <b>{costSummary.salon_days_created}</b></li>
+              <li>Wpisów gotówki: <b>{costSummary.ledger_created}</b></li>
               <li class="muted small">
                 zakładka: <b>{costSummary.sheet_used ?? '—'}</b> · w pliku: {costSummary.sheets_seen.join(', ') || '—'}
               </li>
@@ -275,6 +302,25 @@ export default function BooksySync() {
                 {costSummary.checksum_ok ? '✓ ' : '⚠ '}
                 {costSummary.checksum_note}
               </li>
+            </ul>
+          )}
+        </div>
+
+        <div class="empcard">
+          <div class="secthead">4. Rejestry kasowe → kasa fiskalna + gotówka z Booksy</div>
+          <p class="muted small">
+            Automatycznie z Booksy (raport <code>cash_registers_summary</code>), po dacie zamknięcia
+            sesji: <b>gotówka z Booksy</b> = zamknięcie − otwarcie, <b>kasa fiskalna</b> = gotówka +
+            karta. Zakres jak wyżej (od/do). Raport jest ciężki (historia od 2024) — może potrwać.
+          </p>
+          <button class="btn primary" disabled={busy} onClick={pullRegisters}>
+            {busy ? 'Zaciągam…' : 'Zaciągnij rejestry kasowe'}
+          </button>
+          {regSummary && (
+            <ul class="summary">
+              <li>Dni z kasą: <b>{regSummary.days}</b> · sesji: <b>{regSummary.sessions}</b></li>
+              <li>Gotówka z Booksy: <b>{Number(regSummary.cash_total).toLocaleString('pl-PL')} zł</b></li>
+              <li>Kasa fiskalna: <b>{Number(regSummary.fiscal_total).toLocaleString('pl-PL')} zł</b></li>
             </ul>
           )}
         </div>

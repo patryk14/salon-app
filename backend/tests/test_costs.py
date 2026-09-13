@@ -62,24 +62,22 @@ def test_costs_import_maps_cash_and_reconciliation(db_client: TestClient) -> Non
     assert r.status_code == 200, r.text
     s = r.json()
     assert s["ledger_created"] == 4  # Karola d3,d4 + Oliwia d2,d5
-    assert s["salon_days_created"] == 2  # days 2 and 3
     assert s["per_employee"]["Karola"] == "280"
     assert s["per_employee"]["Oliwia"] == "370"
     assert s["unmatched_names"] == ["Nieznana"]  # "Nieznana" cash dropped, flagged
     assert s["checksum_ok"] is True
 
-    # Cash lands in the ledger, resolved to the right employees.
+    # Cash lands in the ledger, resolved to the right employees. The sheet import
+    # is authoritative ONLY for this per-employee cash; the till (salon_day) comes
+    # from the Booksy cash-registers pull, so it is NOT written here.
     kar = db_client.get("/ledger", params={"employee_id": karola, "month": "2026-09"}).json()
     assert sum(Decimal(str(e["amount_pln"])) for e in kar) == Decimal("280")
     oli = db_client.get("/ledger", params={"employee_id": oliwia, "month": "2026-09"}).json()
     assert sum(Decimal(str(e["amount_pln"])) for e in oli) == Decimal("370")
-
-    # Reconciliation lands in salon_day; unregistered is derived from the ledger.
+    # salon_day untouched by the sheet import (unregistered still derived from ledger):
     sd = db_client.get("/salon-days/2026-09-02").json()
-    assert Decimal(str(sd["booksy_cash"])) == 265
-    assert Decimal(str(sd["fiscal_register"])) == 3600
+    assert Decimal(str(sd["booksy_cash"])) == 0
     assert Decimal(str(sd["unregistered_cash"])) == 150  # Oliwia d2 only (Nieznana dropped)
-    assert Decimal(str(sd["cash_in_register"])) == Decimal("415")  # 150 + 265
 
 
 def test_costs_import_replaces_month(db_client: TestClient) -> None:

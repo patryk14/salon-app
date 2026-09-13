@@ -26,7 +26,6 @@ from app.models import (
     Employee,
     EmployeeAlias,
     LedgerEntry,
-    SalonDay,
     Visit,
 )
 
@@ -46,7 +45,6 @@ class ImportSummary(BaseModel):
 class CostImportSummary(BaseModel):
     year_month: str
     ledger_created: int
-    salon_days_created: int
     per_employee: dict[str, str]  # employee name -> month cash sum (zł)
     unmatched_names: list[str]  # sheet rows no alias resolved — cash dropped
     checksum_ok: bool  # Σ our cash per day == the sheet's "Gotówka nie wbita" row?
@@ -67,6 +65,18 @@ class PullRequest(BaseModel):
     report_key: str = Field(min_length=1, max_length=100)
     date_from: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     date_till: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
+class RangeRequest(BaseModel):
+    date_from: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    date_till: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
+class RegisterImportSummary(BaseModel):
+    days: int
+    sessions: int
+    cash_total: str  # Σ gotówka z Booksy (zamknięcie − otwarcie)
+    fiscal_total: str  # Σ kasa fiskalna (Razem − otwarcie = gotówka + karta)
 
 
 def _client_for(db: Session, cache: dict[str, Client], name: str) -> tuple[Client, bool]:
@@ -192,16 +202,15 @@ def import_costs(
             if len(cand.ledger) > len(parsed.ledger):
                 parsed, sheet_used = cand, ws.title
 
-    # Nothing recognised — don't wipe existing cash; return the tab list so the
-    # owner can see what the file actually contained.
-    salon_days_created = 0
-    if parsed.ledger or parsed.salon_days:
-        # Replace the month: this import is authoritative for its cash.
+    # The sheet is authoritative ONLY for 'gotówka nie wbita' (per-employee cash →
+    # ledger). The till figures (kasa fiskalna / gotówka z Booksy → salon_days)
+    # come from the Booksy cash-registers pull, which is exact — so this import
+    # deliberately does NOT touch salon_days. Nothing recognised → wipe nothing.
+    if parsed.ledger:
         start, end = month_bounds(year_month)
         db.execute(
             delete(LedgerEntry).where(LedgerEntry.entry_date >= start, LedgerEntry.entry_date < end)
         )
-        db.execute(delete(SalonDay).where(SalonDay.day >= start, SalonDay.day < end))
         for emp_id, d, amt in parsed.ledger:
             db.add(
                 LedgerEntry(
@@ -211,15 +220,6 @@ def import_costs(
                     amount_pln=amt,
                 )
             )
-        for d, vals in parsed.salon_days.items():
-            db.add(
-                SalonDay(
-                    day=d,
-                    booksy_cash=vals.get("booksy_cash", Decimal("0")),
-                    fiscal_register=vals.get("fiscal_register", Decimal("0")),
-                )
-            )
-            salon_days_created += 1
         db.flush()
 
     # Checksum: our Σ ledger per day vs the sheet's own "Gotówka nie wbita" row.
@@ -229,8 +229,8 @@ def import_costs(
     mismatched = [
         d for d, exp in parsed.unregistered_by_day.items() if by_day.get(d, Decimal("0")) != exp
     ]
-    if not parsed.ledger and not parsed.salon_days:
-        note = f"nie znaleziono danych kasy w pliku (zakładki: {', '.join(sheets_seen)})"
+    if not parsed.ledger:
+        note = f"nie znaleziono danych gotówki w pliku (zakładki: {', '.join(sheets_seen)})"
     elif mismatched:
         days = [d.isoformat() for d in sorted(mismatched)[:5]]
         note = f"rozjazd w {len(mismatched)} dniach: {days}"
@@ -239,7 +239,6 @@ def import_costs(
     summary = CostImportSummary(
         year_month=year_month,
         ledger_created=len(parsed.ledger),
-        salon_days_created=salon_days_created,
         per_employee={names.get(eid, f"#{eid}"): str(s) for eid, s in parsed.per_employee.items()},
         unmatched_names=sorted(set(parsed.unmatched_names)),
         checksum_ok=not mismatched and bool(parsed.ledger),
@@ -281,3 +280,18 @@ def pull_booksy_visits(
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
     except BooksyParseError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
+
+
+@router.post("/booksy/registers", status_code=status.HTTP_200_OK)
+def pull_booksy_registers(
+    payload: RangeRequest, db: Annotated[Session, Depends(get_db)]
+) -> RegisterImportSummary:
+    """Derive the daily till (gotówka z Booksy + kasa fiskalna) from Booksy's
+    cash-registers report into salon_days — replaces the manual entry of those
+    two rows. Only 'gotówka nie wbita' stays hand-entered."""
+    from app.booksy_api import BooksyAuthError, pull_registers  # lazy: avoids import cycle
+
+    try:
+        return RegisterImportSummary(**pull_registers(db, payload.date_from, payload.date_till))
+    except BooksyAuthError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e

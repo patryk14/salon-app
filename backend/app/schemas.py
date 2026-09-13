@@ -493,8 +493,9 @@ class MonthlyKasaOut(BaseModel):
     stored twice."""
 
     year_month: str
-    fiscal_register: Decimal  # Σ kasa fiskalna
+    fiscal_register: Decimal  # Σ kasa fiskalna (gotówka + karta)
     booksy_cash: Decimal  # Σ gotówka z Booksy
+    card: Decimal  # fiscal_register − booksy_cash (płatności kartą/terminal)
     unregistered_cash: Decimal  # Σ gotówka nie wbita (z ewidencji)
     cash_total: Decimal  # booksy_cash + unregistered ("prawdziwa suma gotówki")
     money_total: Decimal  # fiscal_register + unregistered ("prawdziwa suma pieniędzy")

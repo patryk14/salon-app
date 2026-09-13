@@ -47,6 +47,7 @@ def salon_month_summary(db: DbDep, month: MonthQuery) -> MonthlyKasaOut:
         year_month=month,
         fiscal_register=fiscal,
         booksy_cash=booksy,
+        card=fiscal - booksy,
         unregistered_cash=unreg,
         cash_total=booksy + unreg,
         money_total=fiscal + unreg,
