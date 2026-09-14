@@ -1,66 +1,49 @@
-"""Booksy cash-registers parser: derive daily gotówka + kasa fiskalna from
-closed till sessions (by closing date; open sessions ignored)."""
+"""Booksy cash-registers TRANSACTIONS parser: derive daily gotówka + kasa
+fiskalna by payment method; flag package redemptions; skip the total row."""
 
 from datetime import date
 from decimal import Decimal
 
-from app.registers import parse_cash_registers
+from app.registers import parse_cash_transactions
 
 _HDR = [
     "",
     "",
-    "Status",
-    "Otwarty",
-    "Zamknięty",
-    "Kasjer",
-    "Gotówka przy otwarciu",
-    "Stan oczek (got)",
-    "Stan rzecz (got)",
-    "Różnica",
-    "Stan oczek (inne)",
-    "Stan rzecz (inne)",
-    "Różnica",
-    "Razem",
+    "Data transakcji",
+    "Numer dokumentu",
+    "Numer rejestru",
+    "Klient",
+    "Pracownik",
+    "Wpływy",
+    "Wydatki",
+    "Metoda płatności",
 ]
 
 
-def _row(idx, status, closed, open_cash, close_cash, other, total):
-    return [
-        "",
-        idx,
-        status,
-        "x",
-        closed,
-        "K",
-        open_cash,
-        close_cash,
-        close_cash,
-        "0",
-        other,
-        other,
-        "0",
-        total,
-    ]
+def _tx(idx, dt, client, inflow, method):
+    return ["", idx, dt, "doc", "reg", client, "Karolina Sobas", inflow, "0", method]
 
 
-def test_parse_cash_registers_derives_cash_and_fiscal() -> None:
+def test_parse_cash_transactions_by_method() -> None:
     grid = [
-        ["", "Zestawienie rejestrów kasowych"],
+        ["", "Transakcje z rejestrów kasowych"],
         _HDR,
-        _row("1", "Zamknięty", "3.09.2026 19:00", "177.20", "252.20", "880", "1132.20"),
-        _row(
-            "2", "Zamknięty", "3.09.2026 20:30", "252.20", "252.20", "120", "372.20"
-        ),  # 2nd session same day
-        _row("3", "Otwarty", "", "100", "", "", ""),  # open → skipped
+        _tx("1", "12.09.2026 13:05", "A", "75", "Terminal płatniczy"),
+        _tx("2", "12.09.2026 10:00", "B", "0", "Pakiet"),  # package redemption
+        _tx("3", "11.09.2026 14:00", "C", "105", "Gotówka"),
+        _tx("4", "11.09.2026 15:00", "D", "150", "Terminal płatniczy"),
+        ["", "", "", "", "", "", "Razem", "330", "0", ""],  # total row → skipped (no date)
     ]
-    p = parse_cash_registers(grid)
-    assert p.sessions == 2
-    d = date(2026, 9, 3)
-    # session1 cash 75 (252.20-177.20) + session2 cash 0 → 75
-    assert p.by_day[d]["booksy_cash"] == Decimal("75.00")
-    # session1 fiscal 955 (1132.20-177.20) + session2 fiscal 120 (372.20-252.20) → 1075
-    assert p.by_day[d]["fiscal_register"] == Decimal("1075.00")
+    p = parse_cash_transactions(grid)
+    assert p.transactions == 4
+    assert p.package_redemptions == 1
+
+    d12, d11 = date(2026, 9, 12), date(2026, 9, 11)
+    assert p.by_day[d12]["booksy_cash"] == Decimal("0")  # only card + package that day
+    assert p.by_day[d12]["fiscal_register"] == Decimal("75")
+    assert p.by_day[d11]["booksy_cash"] == Decimal("105")  # cash
+    assert p.by_day[d11]["fiscal_register"] == Decimal("255")  # 105 cash + 150 card
 
 
-def test_parse_cash_registers_empty_when_no_header() -> None:
-    assert parse_cash_registers([["", "nic"], ["", "tu"]]).by_day == {}
+def test_parse_cash_transactions_empty_when_no_header() -> None:
+    assert parse_cash_transactions([["", "nic"], ["", "tu"]]).by_day == {}

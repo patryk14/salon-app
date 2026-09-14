@@ -25,6 +25,7 @@ interface CostSummary {
 interface RegSummary {
   days: number;
   sessions: number;
+  package_redemptions: number;
   cash_total: string;
   fiscal_total: string;
 }
@@ -309,16 +310,16 @@ export default function BooksySync() {
         <div class="empcard">
           <div class="secthead">4. Rejestry kasowe → kasa fiskalna + gotówka z Booksy</div>
           <p class="muted small">
-            Automatycznie z Booksy (raport <code>cash_registers_summary</code>), po dacie zamknięcia
-            sesji: <b>gotówka z Booksy</b> = zamknięcie − otwarcie, <b>kasa fiskalna</b> = gotówka +
-            karta. Zakres jak wyżej (od/do). Raport jest ciężki (historia od 2024) — może potrwać.
+            Automatycznie z Booksy (raport <code>cash_registers_transactions</code>), po metodzie
+            płatności: <b>gotówka z Booksy</b> = suma „Gotówka", <b>kasa fiskalna</b> = gotówka +
+            karta. Zakres jak wyżej (od/do) — raport szanuje daty, więc jest szybki.
           </p>
           <button class="btn primary" disabled={busy} onClick={pullRegisters}>
             {busy ? 'Zaciągam…' : 'Zaciągnij rejestry kasowe'}
           </button>
           {regSummary && (
             <ul class="summary">
-              <li>Dni z kasą: <b>{regSummary.days}</b> · sesji: <b>{regSummary.sessions}</b></li>
+              <li>Dni z kasą: <b>{regSummary.days}</b> · transakcji: <b>{regSummary.sessions}</b> · pakiety: <b>{regSummary.package_redemptions}</b></li>
               <li>Gotówka z Booksy: <b>{Number(regSummary.cash_total).toLocaleString('pl-PL')} zł</b></li>
               <li>Kasa fiskalna: <b>{Number(regSummary.fiscal_total).toLocaleString('pl-PL')} zł</b></li>
             </ul>

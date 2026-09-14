@@ -74,9 +74,10 @@ class RangeRequest(BaseModel):
 
 class RegisterImportSummary(BaseModel):
     days: int
-    sessions: int
-    cash_total: str  # Σ gotówka z Booksy (zamknięcie − otwarcie)
-    fiscal_total: str  # Σ kasa fiskalna (Razem − otwarcie = gotówka + karta)
+    sessions: int  # number of till transactions read
+    package_redemptions: int  # 'Pakiet' rows (future zeszyt auto-derivation)
+    cash_total: str  # Σ gotówka z Booksy (metoda = Gotówka)
+    fiscal_total: str  # Σ kasa fiskalna (wszystkie metody = gotówka + karta)
 
 
 def _client_for(db: Session, cache: dict[str, Client], name: str) -> tuple[Client, bool]:
