@@ -30,7 +30,8 @@ def test_full_period_klaudia_and_hania(db_client: TestClient) -> None:
 
     assert db_client.post("/settlement/periods", json={"year_month": "2026-09"}).status_code == 201
 
-    # Klaudia: 14150 services (Booksy+zeszyt+gotówka), 70 sales, 10h → 1729
+    # Klaudia: 14150 services (Booksy+zeszyt+gotówka), 70 sales, 10h.
+    # >= 14000 → 12% (2026-09-14 rule): 1698 + 314h → 2012 (was 1729 at old 10%).
     r = db_client.put(
         "/settlement/periods/2026-09/lines/" + str(klaudia),
         json={
@@ -44,8 +45,8 @@ def test_full_period_klaudia_and_hania(db_client: TestClient) -> None:
     assert r.status_code == 200, r.text
     body = r.json()
     assert money(body["services_base"]) == money("14150")
-    assert money(body["services_rate"]) == money("0.100")
-    assert money(body["total_payout"]) == money("1729")
+    assert money(body["services_rate"]) == money("0.120")
+    assert money(body["total_payout"]) == money("2012")
 
     # Hania: 3355 services @ 0.5 fte → 6% → 201.30 → ceil 202 (NOT the sheet's 234.85)
     r = db_client.put(

@@ -21,6 +21,8 @@ def scheme(fte: str) -> CommissionScheme:
 # --- real employee-months (services base broken into Booksy/notebook/cash) ---
 def test_klaudia_fulltime_top_bracket_plus_hours() -> None:
     # Booksy 10415 + zeszyt 400 + gotówka 3335 = 14150 services; 70 sales; 10h.
+    # Under the 2026-09-14 rule (>= 14000 → 12%) this month now lands in the top
+    # bracket; it was 10% (1415.00) under the old 15000 threshold.
     inp = SettlementInput(
         booksy_services=Decimal("10415"),
         notebook_services=Decimal("400"),
@@ -30,11 +32,11 @@ def test_klaudia_fulltime_top_bracket_plus_hours() -> None:
     )
     r = compute_settlement(inp, scheme("1.0"))
     assert r.services_base == Decimal("14150")
-    assert r.services_rate == Decimal("0.10")  # >= 10000
-    assert r.services_commission == Decimal("1415.00")
+    assert r.services_rate == Decimal("0.12")  # >= 14000
+    assert r.services_commission == Decimal("1698.00")  # 14150 * 0.12
     assert r.sales_commission == Decimal("0")  # 70 < 1500
     assert r.hours_pay == Decimal("314.00")  # 10 * 31.40
-    assert r.total_payout == Decimal("1729")  # 1415 + 314, already whole
+    assert r.total_payout == Decimal("2012")  # 1698 + 314, already whole
 
 
 def test_karola_fulltime_rounds_up() -> None:
@@ -52,7 +54,7 @@ def test_karola_fulltime_rounds_up() -> None:
 
 def test_oliwia_crosses_into_the_new_12pct_bracket() -> None:
     # Same 15164 services the sheet computed at 10% (1516.40) — but under the
-    # 2026-09 rule (>15000 → 12%) she now earns 12%. This is the rule change in
+    # 2026-09 rule (>= 14000 → 12%) she now earns 12%. This is the rule change in
     # action, and exactly why closed periods freeze their scheme.
     inp = SettlementInput(
         booksy_services=Decimal("12584"),
@@ -62,7 +64,7 @@ def test_oliwia_crosses_into_the_new_12pct_bracket() -> None:
     )
     r = compute_settlement(inp, scheme("1.0"))
     assert r.services_base == Decimal("15164")
-    assert r.services_rate == Decimal("0.12")  # >= 15000
+    assert r.services_rate == Decimal("0.12")  # >= 14000
     assert r.services_commission == Decimal("1819.68")  # was 1516.40 at 10%
     assert r.total_payout == Decimal("1820")
 
@@ -140,15 +142,15 @@ def test_bracket_boundaries_are_inclusive_lower() -> None:
         "0.07"
     )  # exactly at boundary → next bracket
     assert services_rate(Decimal("10000"), s) == Decimal("0.10")
-    assert services_rate(Decimal("14999.99"), s) == Decimal("0.10")
-    assert services_rate(Decimal("15000"), s) == Decimal("0.12")  # new top bracket
+    assert services_rate(Decimal("13999.99"), s) == Decimal("0.10")
+    assert services_rate(Decimal("14000"), s) == Decimal("0.12")  # top bracket (owner 2026-09-14)
 
 
 def test_new_12pct_bracket_scales_with_fte() -> None:
-    # For a half-timer the 12% floor is 15000·0.5 = 7500.
+    # For a half-timer the 12% floor is 14000·0.5 = 7000.
     half = scheme("0.5")
-    assert services_rate(Decimal("7499.99"), half) == Decimal("0.10")
-    assert services_rate(Decimal("7500"), half) == Decimal("0.12")
+    assert services_rate(Decimal("6999.99"), half) == Decimal("0.10")
+    assert services_rate(Decimal("7000"), half) == Decimal("0.12")
 
 
 def test_prepaid_and_cash_join_services_base() -> None:

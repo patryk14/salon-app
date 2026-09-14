@@ -17,8 +17,8 @@ base × their FTE factor (Hania 0.5, Julia 0.75, full-timers 1.0):
     7000·f  ≤ revenue < 8000·f  → 7%
     8000·f  ≤ revenue < 9000·f  → 8%
     9000·f  ≤ revenue < 10000·f → 9%
-    10000·f ≤ revenue < 15000·f → 10%
-    revenue ≥ 15000·f           → 12%   (owner addition, 2026-09)
+    10000·f ≤ revenue < 14000·f → 10%
+    revenue ≥ 14000·f           → 12%   (owner: 12% from 14000, 2026-09-14)
 
 Sales commission: revenue ≥ 1500 PLN → 10% of the whole amount, else 0.
 Hours pay: logged_hours × 31.40 PLN/h (for Klaudia, only her extra hours; her
@@ -38,7 +38,7 @@ BASE_SERVICES_BRACKETS: list[tuple[Decimal, Decimal]] = [
     (Decimal("8000"), Decimal("0.08")),
     (Decimal("9000"), Decimal("0.09")),
     (Decimal("10000"), Decimal("0.10")),
-    (Decimal("15000"), Decimal("0.12")),  # owner addition 2026-09: >15000 → 12%
+    (Decimal("14000"), Decimal("0.12")),  # owner: 12% from 14000 (was 15000), 2026-09-14
 ]
 SALES_THRESHOLD = Decimal("1500")  # owner ruling #2: >= 1500 → 10% of the whole
 SALES_RATE = Decimal("0.10")
