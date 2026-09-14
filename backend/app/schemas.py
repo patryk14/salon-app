@@ -488,6 +488,19 @@ class SalonDayOut(BaseModel):
     note: str | None
 
 
+class PackageOut(BaseModel):
+    id: int
+    client_name: str
+    name: str
+    total_value: Decimal
+    total_treatments: int
+    remaining: int
+    used: int
+    value_per_treatment: Decimal  # total_value / total_treatments (prowizja za realizację)
+    valid_until: date | None
+    status: str  # active | used_up | expired
+
+
 class MonthlyKasaOut(BaseModel):
     """A month's till reconciliation (salon-wide). All summed/derived, nothing
     stored twice."""

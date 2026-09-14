@@ -452,3 +452,27 @@ class SalonDay(TimestampMixin, Base):
     booksy_cash: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
     fiscal_register: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
     note: Mapped[str | None] = mapped_column(Text)
+
+
+# ------------------------------------------------------ packages (F+, Day 2)
+class Package(TimestampMixin, Base):
+    """A prepaid client package, synced from Booksy (source of truth — packages
+    are sold there). One ACTIVE package per client at a time (owner rule), so a
+    redemption resolves unambiguously. Commission per redemption =
+    total_value / total_treatments (the discounted package price), credited to
+    the performer of that day's visit."""
+
+    __tablename__ = "packages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    booksy_number: Mapped[str] = mapped_column(String(32), unique=True)  # Booksy package id
+    client_id: Mapped[int | None] = mapped_column(ForeignKey("clients.id", ondelete="SET NULL"))
+    client_name: Mapped[str] = mapped_column(String(200))  # as Booksy spells it
+    name: Mapped[str] = mapped_column(String(200))
+    total_value: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    total_treatments: Mapped[int] = mapped_column()
+    remaining: Mapped[int] = mapped_column()  # Booksy-maintained; synced snapshot
+    valid_from: Mapped[date | None] = mapped_column(Date)
+    valid_until: Mapped[date | None] = mapped_column(Date)
+
+    __table_args__ = (Index("ix_packages_client", "client_id"),)

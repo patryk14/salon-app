@@ -136,3 +136,47 @@ def pull_registers(db: Session, date_from: str, date_till: str) -> dict:
         "cash_total": str(cash_total),
         "fiscal_total": str(fiscal_total),
     }
+
+
+def pull_packages(db: Session) -> dict:
+    """Sync every client package from Booksy's packages_summary (Booksy is the
+    source — packages are sold there). Upserts by Booksy package number; matches
+    the client by name (link only, never creates). The report ignores dates and
+    returns the full current state, which is what we want."""
+    from openpyxl import load_workbook
+
+    from app.booksy import split_name
+    from app.models import Client, Package
+    from app.packages import parse_packages_summary
+
+    creds = load_credentials(db)
+    data = download_report(creds, "packages_summary", "2026-01-01", "2026-12-31")
+    wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    grid = [list(r) for r in wb.active.iter_rows(values_only=True)]
+    parsed = parse_packages_summary(grid)
+
+    created = updated = active = 0
+    for p in parsed:
+        first, last = split_name(p.client_name)
+        client = db.scalar(
+            select(Client).where(Client.first_name == first, Client.last_name == last)
+        )
+        row = db.scalar(select(Package).where(Package.booksy_number == p.booksy_number))
+        if row is None:
+            row = Package(booksy_number=p.booksy_number)
+            db.add(row)
+            created += 1
+        else:
+            updated += 1
+        row.client_id = client.id if client else None
+        row.client_name = p.client_name
+        row.name = p.name
+        row.total_value = p.total_value
+        row.total_treatments = p.total_treatments
+        row.remaining = p.remaining
+        row.valid_from = p.valid_from
+        row.valid_until = p.valid_until
+        if p.remaining > 0:
+            active += 1
+    db.flush()
+    return {"packages": len(parsed), "created": created, "updated": updated, "active": active}

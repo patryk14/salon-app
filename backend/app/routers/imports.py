@@ -80,6 +80,13 @@ class RegisterImportSummary(BaseModel):
     fiscal_total: str  # Σ kasa fiskalna (wszystkie metody = gotówka + karta)
 
 
+class PackageSyncSummary(BaseModel):
+    packages: int
+    created: int
+    updated: int
+    active: int  # remaining > 0
+
+
 def _client_for(db: Session, cache: dict[str, Client], name: str) -> tuple[Client, bool]:
     if name in cache:
         return cache[name], False
@@ -294,5 +301,17 @@ def pull_booksy_registers(
 
     try:
         return RegisterImportSummary(**pull_registers(db, payload.date_from, payload.date_till))
+    except BooksyAuthError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
+
+
+@router.post("/booksy/packages", status_code=status.HTTP_200_OK)
+def pull_booksy_packages(db: Annotated[Session, Depends(get_db)]) -> PackageSyncSummary:
+    """Sync client packages from Booksy (source of truth). Full current state;
+    no date range needed."""
+    from app.booksy_api import BooksyAuthError, pull_packages  # lazy: avoids import cycle
+
+    try:
+        return PackageSyncSummary(**pull_packages(db))
     except BooksyAuthError as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e

@@ -29,6 +29,12 @@ interface RegSummary {
   cash_total: string;
   fiscal_total: string;
 }
+interface PkgSummary {
+  packages: number;
+  created: number;
+  updated: number;
+  active: number;
+}
 
 function thisYm(): string {
   const d = new Date();
@@ -71,6 +77,7 @@ export default function BooksySync() {
   const [costFile, setCostFile] = useState<File | null>(null);
   const [costSummary, setCostSummary] = useState<CostSummary | null>(null);
   const [regSummary, setRegSummary] = useState<RegSummary | null>(null);
+  const [pkgSummary, setPkgSummary] = useState<PkgSummary | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -171,6 +178,22 @@ export default function BooksySync() {
       });
       setRegSummary(s);
       setOk('Kasa zaciągnięta z rejestrów.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function pullPackages() {
+    setError(null);
+    setOk(null);
+    setPkgSummary(null);
+    setBusy(true);
+    try {
+      const s = await apiFetch<PkgSummary>('/imports/booksy/packages', { method: 'POST' });
+      setPkgSummary(s);
+      setOk('Pakiety zsynchronizowane.');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -322,6 +345,24 @@ export default function BooksySync() {
               <li>Dni z kasą: <b>{regSummary.days}</b> · transakcji: <b>{regSummary.sessions}</b> · pakiety: <b>{regSummary.package_redemptions}</b></li>
               <li>Gotówka z Booksy: <b>{Number(regSummary.cash_total).toLocaleString('pl-PL')} zł</b></li>
               <li>Kasa fiskalna: <b>{Number(regSummary.fiscal_total).toLocaleString('pl-PL')} zł</b></li>
+            </ul>
+          )}
+        </div>
+
+        <div class="empcard">
+          <div class="secthead">5. Pakiety klientek</div>
+          <p class="muted small">
+            Synchronizacja pakietów z Booksy (raport <code>packages_summary</code>) — klientka,
+            wartość, liczba zabiegów, ile zostało, ważność. Booksy jest źródłem prawdy (pakiety
+            wpisujecie tam). Podgląd w zakładce <b>Pakiety</b>.
+          </p>
+          <button class="btn primary" disabled={busy} onClick={pullPackages}>
+            {busy ? 'Synchronizuję…' : 'Zsynchronizuj pakiety'}
+          </button>
+          {pkgSummary && (
+            <ul class="summary">
+              <li>Pakietów: <b>{pkgSummary.packages}</b> (nowych {pkgSummary.created}, akt. {pkgSummary.updated})</li>
+              <li>Aktywnych (zostały zabiegi): <b>{pkgSummary.active}</b></li>
             </ul>
           )}
         </div>

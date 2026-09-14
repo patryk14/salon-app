@@ -21,6 +21,7 @@ from app.routers import (
     imports,
     invites,
     me,
+    packages,
     settlement,
     supplies,
     worklog,
@@ -73,4 +74,5 @@ def create_app() -> FastAPI:
     app.include_router(hr.documents)
     app.include_router(hr.scheduling)
     app.include_router(cash.salon_days)
+    app.include_router(packages.packages)
     return app
