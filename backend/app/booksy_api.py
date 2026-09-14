@@ -212,10 +212,13 @@ def pull_packages(db: Session) -> dict:
     source — packages are sold there). Upserts by Booksy package number; matches
     the client by name (link only, never creates). The report ignores dates and
     returns the full current state, which is what we want."""
+    from datetime import date
+
     from openpyxl import load_workbook
+    from sqlalchemy import func
 
     from app.booksy import split_name
-    from app.models import Client, Package
+    from app.models import Client, Package, PackageRedemption
     from app.packages import parse_packages_summary
 
     creds = load_credentials(db)
@@ -224,8 +227,17 @@ def pull_packages(db: Session) -> dict:
     grid = [list(r) for r in wb.active.iter_rows(values_only=True)]
     parsed = parse_packages_summary(grid)
 
-    created = updated = active = 0
+    # Owner ruling (2026-09-14): packages that expired before the current year are
+    # "dead" and no longer tracked. Don't import them, and self-prune any stale
+    # rows left from an earlier sync (only where no redemption history depends on
+    # them, so we never orphan a credited commission).
+    cutoff = date(date.today().year, 1, 1)
+
+    created = updated = active = skipped_expired = 0
     for p in parsed:
+        if p.valid_until is not None and p.valid_until < cutoff:
+            skipped_expired += 1
+            continue
         first, last = split_name(p.client_name)
         client = db.scalar(
             select(Client).where(Client.first_name == first, Client.last_name == last)
@@ -247,5 +259,24 @@ def pull_packages(db: Session) -> dict:
         row.valid_until = p.valid_until
         if p.remaining > 0:
             active += 1
+
+    removed_expired = 0
+    for row in db.scalars(select(Package).where(Package.valid_until < cutoff)).all():
+        linked = db.scalar(
+            select(func.count())
+            .select_from(PackageRedemption)
+            .where(PackageRedemption.package_id == row.id)
+        )
+        if not linked:
+            db.delete(row)
+            removed_expired += 1
+
     db.flush()
-    return {"packages": len(parsed), "created": created, "updated": updated, "active": active}
+    return {
+        "packages": len(parsed),
+        "created": created,
+        "updated": updated,
+        "active": active,
+        "skipped_expired": skipped_expired,
+        "removed_expired": removed_expired,
+    }

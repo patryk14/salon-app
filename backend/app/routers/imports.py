@@ -87,6 +87,8 @@ class PackageSyncSummary(BaseModel):
     created: int
     updated: int
     active: int  # remaining > 0
+    skipped_expired: int = 0  # not imported: expired before this year (owner: dead)
+    removed_expired: int = 0  # pruned stale rows with no redemption history
 
 
 def _client_for(db: Session, cache: dict[str, Client], name: str) -> tuple[Client, bool]:
