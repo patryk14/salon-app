@@ -647,3 +647,59 @@ class StatementMaterializeSummary(BaseModel):
     txns_imported: int
     unassigned: int  # pending, no category → skipped (assign or ignore first)
     recurring_cleared: int  # template lines removed in favor of bank actuals
+
+
+# --- Vouchers (gift cards) ---
+class VoucherRedemptionOut(BaseModel):
+    id: int
+    amount: Decimal
+    redeemed_on: date
+    note: str | None
+    created_by: str | None  # audit: who
+    created_at: datetime  # audit: when
+
+
+class VoucherOut(BaseModel):
+    id: int
+    client_name: str
+    description: str
+    total_value: Decimal
+    remaining_value: Decimal
+    purchased_on: date | None
+    valid_until: date | None
+    status: str  # active | used | expired
+    note: str | None
+    source: str
+    redemptions: list[VoucherRedemptionOut]
+
+
+class VoucherCreate(BaseModel):
+    client_name: str = Field(min_length=1, max_length=200)
+    description: str = Field(min_length=1, max_length=300)
+    total_value: Decimal = Field(ge=0, max_digits=10, decimal_places=2)
+    remaining_value: Decimal | None = Field(default=None, ge=0, max_digits=10, decimal_places=2)
+    purchased_on: date | None = None
+    valid_until: date | None = None
+    note: str | None = None
+
+
+class VoucherUpdate(BaseModel):
+    client_name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, min_length=1, max_length=300)
+    total_value: Decimal | None = Field(default=None, ge=0, max_digits=10, decimal_places=2)
+    remaining_value: Decimal | None = Field(default=None, ge=0, max_digits=10, decimal_places=2)
+    valid_until: date | None = None
+    note: str | None = None
+
+
+class VoucherRedeemIn(BaseModel):
+    amount: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
+    redeemed_on: date | None = None
+    note: str | None = None
+
+
+class VoucherImportSummary(BaseModel):
+    parsed: int  # rows with a parseable value
+    imported: int  # active ones added
+    skipped_existing: int
+    skipped_inactive: int  # parsed but expired/old → not imported

@@ -598,3 +598,50 @@ class StatementTxn(TimestampMixin, Base):
     expense_id: Mapped[int | None] = mapped_column(ForeignKey("expenses.id", ondelete="SET NULL"))
 
     __table_args__ = (Index("ix_statement_txns_month_status", "year_month", "status"),)
+
+
+# --- Vouchers (gift cards) — value-based, tracked by hand (Booksy has no voucher
+# entity; a voucher-paid visit is a normal service there, so it never touches the
+# commission base). Partial redemptions draw down remaining_value with an audit
+# trail (who + when).
+class Voucher(TimestampMixin, Base):
+    """A gift voucher sold to a client: a złoty value drawn down over time.
+    remaining_value is the live balance; status is derived (used / expired /
+    active). source records manual entry vs the one-off docx seed."""
+
+    __tablename__ = "vouchers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    client_name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(String(300))  # "300 zł" / "Masaż Kobido 320"
+    total_value: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    remaining_value: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    purchased_on: Mapped[date | None] = mapped_column(Date)
+    valid_until: Mapped[date | None] = mapped_column(Date)
+    note: Mapped[str | None] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(String(12), default="manual")  # manual | docx
+    created_by: Mapped[str | None] = mapped_column(String(100))
+
+    redemptions: Mapped[list["VoucherRedemption"]] = relationship(
+        back_populates="voucher", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class VoucherRedemption(TimestampMixin, Base):
+    """One draw against a voucher. created_by + created_at are the audit trail
+    the owner asked for (who marked it, and when)."""
+
+    __tablename__ = "voucher_redemptions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    voucher_id: Mapped[int] = mapped_column(
+        ForeignKey("vouchers.id", ondelete="CASCADE"), nullable=False
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    redeemed_on: Mapped[date] = mapped_column(Date, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[str | None] = mapped_column(String(100))  # audit: who
+
+    voucher: Mapped["Voucher"] = relationship(back_populates="redemptions")
+
+    __table_args__ = (Index("ix_voucher_redemptions_voucher", "voucher_id"),)

@@ -28,6 +28,7 @@ const GROUPS: { title: string; links: [string, string][] }[] = [
     links: [
       ['/panel/zaopatrzenie', 'Zamówienia'],
       ['/panel/pakiety', 'Pakiety'],
+      ['/panel/vouchery', 'Vouchery'],
       ['/panel/wydatki', 'Wydatki'],
       ['/panel/wyciag', 'Wyciąg'],
     ],
