@@ -496,3 +496,80 @@ class PackageRedemption(TimestampMixin, Base):
     value: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
 
     __table_args__ = (Index("ix_package_redemptions_emp_date", "employee_id", "redemption_date"),)
+
+
+# --- Expenses & P&L (F12) — the cost side, mirroring the owner's monthly sheet.
+# Revenue is derived (salon_days) and staff cost is derived (settlement payouts);
+# only operating costs are entered here, grouped into the sheet's categories.
+class ExpenseCategory(TimestampMixin, Base):
+    """One of the owner's fixed cost columns (Koszty stałe, zmienne, …). Line
+    items live as Expense rows under a category — a category's 'subcategories'
+    are just the named lines. 'Koszt pracownicy' is NOT a category: it is derived
+    from the month's settlement payouts, never entered here."""
+
+    __tablename__ = "expense_categories"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(40), unique=True)
+    name: Mapped[str] = mapped_column(String(80))
+    display_order: Mapped[int] = mapped_column(default=0)
+
+
+class RecurringExpense(TimestampMixin, Base):
+    """A template for a cost that repeats every month (rent, leases, ZUS…). When
+    a month is first opened it is materialized once into an Expense row the owner
+    can then adjust — so the fixed list is never retyped, but each month's real
+    amount is still editable and a deleted line stays deleted."""
+
+    __tablename__ = "recurring_expenses"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    category_id: Mapped[int] = mapped_column(
+        ForeignKey("expense_categories.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(120))
+    amount_pln: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    active: Mapped[bool] = mapped_column(default=True)
+
+
+class Expense(TimestampMixin, Base):
+    """One cost line for one accounting month. Monthly grain (year_month) matches
+    the settlement/kasa model and the owner's sheet; incurred_on is optional (for
+    bank-statement rows). source records where it came from."""
+
+    __tablename__ = "expenses"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    year_month: Mapped[str] = mapped_column(String(7))  # "2026-08"
+    category_id: Mapped[int] = mapped_column(
+        ForeignKey("expense_categories.id", ondelete="RESTRICT"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(120))
+    amount_pln: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
+    vendor: Mapped[str | None] = mapped_column(String(120))
+    source: Mapped[str] = mapped_column(String(12), default="manual")  # manual|recurring|statement
+    incurred_on: Mapped[date | None] = mapped_column(Date)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[str | None] = mapped_column(String(100))
+
+    __table_args__ = (Index("ix_expenses_month_cat", "year_month", "category_id"),)
+
+
+class PnlMonth(TimestampMixin, Base):
+    """The monthly P&L snapshot state. draft → revenue + staff cost are computed
+    live from salon_days and settlements (overridable); closed → both are frozen
+    into *_snapshot and expenses for the month become read-only, exactly like a
+    settlement period. Its existence marks a month as 'opened' (prefilled once)."""
+
+    __tablename__ = "pnl_months"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    year_month: Mapped[str] = mapped_column(String(7), unique=True)
+    status: Mapped[str] = mapped_column(String(10), default="draft")  # draft | closed
+    revenue_override: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    staff_cost_override: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    revenue_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))  # frozen at close
+    staff_cost_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    note: Mapped[str | None] = mapped_column(Text)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_by: Mapped[str | None] = mapped_column(String(100))

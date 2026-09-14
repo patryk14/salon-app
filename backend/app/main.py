@@ -16,6 +16,7 @@ from app.db import get_engine
 from app.routers import (
     cash,
     clients,
+    expenses,
     health,
     hr,
     imports,
@@ -75,4 +76,6 @@ def create_app() -> FastAPI:
     app.include_router(hr.scheduling)
     app.include_router(cash.salon_days)
     app.include_router(packages.packages)
+    app.include_router(expenses.pnl)
+    app.include_router(expenses.expenses)
     return app

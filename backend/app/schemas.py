@@ -512,3 +512,102 @@ class MonthlyKasaOut(BaseModel):
     unregistered_cash: Decimal  # Σ gotówka nie wbita (z ewidencji)
     cash_total: Decimal  # booksy_cash + unregistered ("prawdziwa suma gotówki")
     money_total: Decimal  # fiscal_register + unregistered ("prawdziwa suma pieniędzy")
+
+
+# --- Expenses & P&L (F12) ---
+_YM = r"^\d{4}-(0[1-9]|1[0-2])$"
+
+
+class ExpenseLineIn(BaseModel):
+    """A cost line the owner enters for a month (a 'subcategory' = the name)."""
+
+    year_month: str = Field(pattern=_YM)
+    category_code: str
+    name: str = Field(min_length=1, max_length=120)
+    amount_pln: Decimal = Field(default=Decimal("0"), ge=0, max_digits=10, decimal_places=2)
+    vendor: str | None = Field(default=None, max_length=120)
+    incurred_on: date | None = None
+    note: str | None = None
+
+
+class ExpenseLineUpdate(BaseModel):
+    category_code: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    amount_pln: Decimal | None = Field(default=None, ge=0, max_digits=10, decimal_places=2)
+    vendor: str | None = Field(default=None, max_length=120)
+    incurred_on: date | None = None
+    note: str | None = None
+
+
+class ExpenseLineOut(BaseModel):
+    id: int
+    category_code: str
+    name: str
+    amount_pln: Decimal
+    vendor: str | None
+    source: str  # manual | recurring | statement
+    incurred_on: date | None
+    note: str | None
+
+
+class RecurringIn(BaseModel):
+    category_code: str
+    name: str = Field(min_length=1, max_length=120)
+    amount_pln: Decimal = Field(ge=0, max_digits=10, decimal_places=2)
+    active: bool = True
+
+
+class RecurringUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    amount_pln: Decimal | None = Field(default=None, ge=0, max_digits=10, decimal_places=2)
+    active: bool | None = None
+
+
+class RecurringOut(BaseModel):
+    id: int
+    category_code: str
+    name: str
+    amount_pln: Decimal
+    active: bool
+
+
+class PnlCategoryOut(BaseModel):
+    code: str
+    name: str
+    total: Decimal
+    lines: list[ExpenseLineOut]
+
+
+class PnlOut(BaseModel):
+    """A month's full P&L, mirroring the owner's sheet layout."""
+
+    year_month: str
+    status: str  # draft | closed
+    revenue: Decimal  # UTARG
+    revenue_source: str  # computed | override | snapshot
+    categories: list[PnlCategoryOut]  # the 6 operating categories, with lines
+    operating_total: Decimal  # KOSZTY ŁĄCZNE
+    staff_cost: Decimal  # KOSZT PRACOWNICY
+    staff_cost_source: str  # settlement | override | snapshot | none
+    costs_total: Decimal  # PODSUMOWANIE KOSZTÓW
+    profit: Decimal  # ZAROBEK
+    note: str | None
+    closed_at: datetime | None
+
+
+class PnlMonthSummary(BaseModel):
+    year_month: str
+    status: str
+    revenue: Decimal
+    costs_total: Decimal
+    profit: Decimal
+
+
+class PnlOverrideIn(BaseModel):
+    """Admin overrides for a draft month (null clears an override)."""
+
+    revenue_override: Decimal | None = Field(default=None, ge=0, max_digits=10, decimal_places=2)
+    staff_cost_override: Decimal | None = Field(default=None, ge=0, max_digits=10, decimal_places=2)
+    note: str | None = None
+    clear_revenue_override: bool = False
+    clear_staff_cost_override: bool = False
