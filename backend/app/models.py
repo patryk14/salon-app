@@ -488,12 +488,19 @@ class PackageRedemption(TimestampMixin, Base):
     __tablename__ = "package_redemptions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    booksy_ref: Mapped[str] = mapped_column(String(40), unique=True)  # Numer dokumentu
+    # Booksy document number for synced rows; NULL for manual ones (owner marked a
+    # treatment Booksy missed — e.g. a late-cancel, ruling #16). Unique still holds
+    # (Postgres allows many NULLs).
+    booksy_ref: Mapped[str | None] = mapped_column(String(40), unique=True)
     package_id: Mapped[int | None] = mapped_column(ForeignKey("packages.id", ondelete="SET NULL"))
     employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id", ondelete="SET NULL"))
     client_name: Mapped[str] = mapped_column(String(200))
     redemption_date: Mapped[date] = mapped_column(Date, nullable=False)
     value: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
+    source: Mapped[str] = mapped_column(String(12), default="booksy")  # booksy | manual
+    note: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[str | None] = mapped_column(String(100))  # audit: who marked a manual one
+    assigned_by: Mapped[str | None] = mapped_column(String(100))  # audit: who set the performer
 
     __table_args__ = (Index("ix_package_redemptions_emp_date", "employee_id", "redemption_date"),)
 

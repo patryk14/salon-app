@@ -193,6 +193,103 @@ def test_pull_packages_skips_and_prunes_expired(monkeypatch) -> None:
     db.close()
 
 
+def _mem_session():
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    from app.models import Base
+
+    eng = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(eng)
+    return sessionmaker(bind=eng)()
+
+
+def test_manual_redeem_credits_commission_and_audits() -> None:
+    from app.auth import CurrentUser
+    from app.derivation import monthly_notebook_services
+    from app.models import Employee, Package
+    from app.routers.packages import list_packages, redeem_package
+    from app.schemas import PackageRedeemIn
+
+    db = _mem_session()
+    e = Employee(display_name="Ola")
+    db.add(e)
+    db.flush()
+    p = Package(
+        booksy_number="P1",
+        client_name="Klientka",
+        name="Endermologia 10x",
+        total_value=Decimal("2000"),
+        total_treatments=10,
+        remaining=4,
+    )
+    db.add(p)
+    db.flush()
+    user = CurrentUser(sub="admin1", username="admin1", groups=frozenset({"admin"}))
+
+    out = redeem_package(p.id, PackageRedeemIn(employee_id=e.id, note="late cancel"), user, db)
+    assert out.value == Decimal("200.00")  # 2000 / 10
+    assert out.source == "manual"
+    assert out.created_by == "admin1" and out.assigned_by == "admin1"  # audit
+    assert out.employee_name == "Ola"
+
+    # credits the performer's prepaid-services base for that month
+    ym = out.redemption_date.strftime("%Y-%m")
+    assert monthly_notebook_services(db, e.id, ym) == Decimal("200.00")
+
+    # effective remaining drops even though Booksy's snapshot hasn't
+    pkg = next(x for x in list_packages(db) if x.id == p.id)
+    assert pkg.remaining == 4 and pkg.manual_used == 1 and pkg.effective_remaining == 3
+    db.close()
+
+
+def test_assign_performer_to_unmatched_redemption() -> None:
+    from datetime import date
+
+    from app.auth import CurrentUser
+    from app.models import Employee, Package, PackageRedemption
+    from app.routers.packages import assign_redemption, unmatched_redemptions
+    from app.schemas import RedemptionAssignIn
+
+    db = _mem_session()
+    e = Employee(display_name="Ola")
+    db.add(e)
+    db.flush()
+    p = Package(
+        booksy_number="P2",
+        client_name="Klientka",
+        name="Endermologia 10x",
+        total_value=Decimal("1500"),
+        total_treatments=10,
+        remaining=5,
+    )
+    db.add(p)
+    db.flush()
+    # a Booksy redemption matched to the package but with no performer
+    r = PackageRedemption(
+        booksy_ref="D99",
+        package_id=p.id,
+        client_name="Klientka",
+        redemption_date=date(2026, 9, 1),
+        value=Decimal("150"),
+    )
+    db.add(r)
+    db.flush()
+
+    assert any(x.id == r.id for x in unmatched_redemptions(db))  # no employee → unmatched
+
+    user = CurrentUser(sub="admin1", username="admin1", groups=frozenset({"admin"}))
+    assign_redemption(r.id, RedemptionAssignIn(employee_id=e.id, note="z grafiku"), user, db)
+    db.refresh(r)
+    assert r.employee_id == e.id
+    assert r.assigned_by == "admin1"  # audit
+    assert not any(x.id == r.id for x in unmatched_redemptions(db))  # resolved
+    db.close()
+
+
 def test_package_redemption_feeds_notebook_services() -> None:
     """A package redemption credits the performer's prepaid-services base
     (notebook_services), summed with the legacy manual notebook."""

@@ -499,6 +499,8 @@ class PackageOut(BaseModel):
     value_per_treatment: Decimal  # total_value / total_treatments (prowizja za realizację)
     valid_until: date | None
     status: str  # active | used_up | expired
+    manual_used: int = 0  # manual redemptions on top of Booksy's count
+    effective_remaining: int = 0  # Booksy remaining − manual_used
 
 
 class MonthlyKasaOut(BaseModel):
@@ -703,3 +705,36 @@ class VoucherImportSummary(BaseModel):
     imported: int  # active ones added
     skipped_existing: int
     skipped_inactive: int  # parsed but expired/old → not imported
+
+
+# --- Package redemptions: manual marking + performer assignment ---
+class PackageRedeemIn(BaseModel):
+    """Mark a package treatment used manually (Booksy missed it — e.g. a late
+    cancel). Optional performer → credits commission; omit for a pure count fix."""
+
+    employee_id: int | None = None
+    redemption_date: date | None = None
+    note: str | None = None
+
+
+class RedemptionAssignIn(BaseModel):
+    employee_id: int | None = None
+    package_id: int | None = None
+    note: str | None = None
+    clear_employee: bool = False
+
+
+class RedemptionOut(BaseModel):
+    id: int
+    package_id: int | None
+    package_name: str | None
+    client_name: str
+    redemption_date: date
+    value: Decimal
+    employee_id: int | None
+    employee_name: str | None
+    source: str  # booksy | manual
+    note: str | None
+    created_by: str | None  # audit: who marked a manual one
+    assigned_by: str | None  # audit: who set the performer
+    created_at: datetime
