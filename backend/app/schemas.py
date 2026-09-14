@@ -611,3 +611,39 @@ class PnlOverrideIn(BaseModel):
     note: str | None = None
     clear_revenue_override: bool = False
     clear_staff_cost_override: bool = False
+
+
+# --- Bank statement import (MT940 → expenses) ---
+class StatementTxnOut(BaseModel):
+    id: int
+    value_date: date
+    amount: Decimal
+    counterparty: str
+    title: str
+    category: str | None  # assigned category code (null = needs a human)
+    name: str
+    bucket: str  # operating | staff | owner_draw | unknown
+    status: str  # pending | imported | ignored
+
+
+class StatementImportSummary(BaseModel):
+    year_month: str  # dominant month in the file
+    parsed: int  # debits found
+    added: int  # new pending/ignored rows
+    duplicates: int  # bank_refs already seen, skipped
+    needs_review: int  # added rows with no suggested category
+
+
+class StatementTxnUpdate(BaseModel):
+    category: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    status: str | None = None  # pending | ignored
+    clear_category: bool = False
+
+
+class StatementMaterializeSummary(BaseModel):
+    year_month: str
+    expenses_created: int
+    txns_imported: int
+    unassigned: int  # pending, no category → skipped (assign or ignore first)
+    recurring_cleared: int  # template lines removed in favor of bank actuals

@@ -573,3 +573,28 @@ class PnlMonth(TimestampMixin, Base):
     note: Mapped[str | None] = mapped_column(Text)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_by: Mapped[str | None] = mapped_column(String(100))
+
+
+class StatementTxn(TimestampMixin, Base):
+    """One debit from a bank statement (MT940), staged for review before it
+    becomes an Expense. Deduped on the bank's own reference so re-uploading the
+    same statement is idempotent. status: pending (awaiting review) → imported
+    (materialized into an Expense) or ignored (staff salary / owner draw / not a
+    cost). bucket carries the parser's classification for the review UI."""
+
+    __tablename__ = "statement_txns"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bank_ref: Mapped[str] = mapped_column(String(40), unique=True)
+    year_month: Mapped[str] = mapped_column(String(7))
+    value_date: Mapped[date] = mapped_column(Date, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    counterparty: Mapped[str] = mapped_column(String(200))
+    title: Mapped[str] = mapped_column(String(300))
+    category: Mapped[str | None] = mapped_column(String(40))  # effective category code
+    name: Mapped[str] = mapped_column(String(120))  # effective line label
+    bucket: Mapped[str] = mapped_column(String(20))  # operating|staff|owner_draw|unknown
+    status: Mapped[str] = mapped_column(String(10), default="pending")  # pending|imported|ignored
+    expense_id: Mapped[int | None] = mapped_column(ForeignKey("expenses.id", ondelete="SET NULL"))
+
+    __table_args__ = (Index("ix_statement_txns_month_status", "year_month", "status"),)

@@ -24,6 +24,7 @@ from app.routers import (
     me,
     packages,
     settlement,
+    statements,
     supplies,
     worklog,
 )
@@ -78,4 +79,5 @@ def create_app() -> FastAPI:
     app.include_router(packages.packages)
     app.include_router(expenses.pnl)
     app.include_router(expenses.expenses)
+    app.include_router(statements.router)
     return app
