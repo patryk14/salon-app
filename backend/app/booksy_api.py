@@ -127,15 +127,84 @@ def pull_registers(db: Session, date_from: str, date_till: str) -> dict:
     for d, v in days.items():
         db.add(SalonDay(day=d, booksy_cash=v["booksy_cash"], fiscal_register=v["fiscal_register"]))
     db.flush()
+    red = _sync_package_redemptions(db, parsed.package_txs, start, end)
     cash_total = sum((v["booksy_cash"] for v in days.values()), start=0)
     fiscal_total = sum((v["fiscal_register"] for v in days.values()), start=0)
     return {
         "days": len(days),
         "sessions": parsed.transactions,
         "package_redemptions": parsed.package_redemptions,
+        "redemptions_matched": red["matched"],
+        "redemptions_unmatched": red["unmatched"],
         "cash_total": str(cash_total),
         "fiscal_total": str(fiscal_total),
     }
+
+
+def _sync_package_redemptions(db: Session, package_txs: list, start, end) -> dict:
+    """For each 'Pakiet' till transaction: find the client's package active that
+    day (one active per client → unambiguous) and the performer from that day's
+    visit (transaction is always the shared cashier), then upsert a redemption
+    crediting value_per_treatment. Idempotent on the Booksy document number;
+    package/employee left NULL (flagged as unmatched) when they can't be
+    resolved — never silently dropped."""
+    from datetime import timedelta
+    from decimal import Decimal
+
+    from app.booksy import split_name
+    from app.models import Client, EmployeeAlias, Package, PackageRedemption, Visit
+
+    alias_map = dict(db.execute(select(EmployeeAlias.alias, EmployeeAlias.employee_id)).all())
+    matched = unmatched = 0
+    for d, client_name, doc in package_txs:
+        if not (start <= d <= end) or not doc:
+            continue
+        first, last = split_name(client_name)
+        client = db.scalar(
+            select(Client).where(Client.first_name == first, Client.last_name == last)
+        )
+        pkg = emp_id = None
+        if client is not None:
+            pkg = db.scalar(
+                select(Package)
+                .where(
+                    Package.client_id == client.id,
+                    Package.valid_from <= d,
+                    Package.valid_until >= d,
+                )
+                .order_by(Package.valid_until)
+            )
+            staff = db.scalar(
+                select(Visit.staff_name)
+                .where(
+                    Visit.client_id == client.id,
+                    Visit.starts_at >= d,
+                    Visit.starts_at < d + timedelta(days=1),
+                )
+                .limit(1)
+            )
+            if staff:
+                emp_id = alias_map.get(staff)
+        value = (
+            (pkg.total_value / pkg.total_treatments).quantize(Decimal("0.01"))
+            if pkg
+            else Decimal("0")
+        )
+        row = db.scalar(select(PackageRedemption).where(PackageRedemption.booksy_ref == doc))
+        if row is None:
+            row = PackageRedemption(booksy_ref=doc)
+            db.add(row)
+        row.package_id = pkg.id if pkg else None
+        row.employee_id = emp_id
+        row.client_name = client_name
+        row.redemption_date = d
+        row.value = value
+        if pkg is not None and emp_id is not None:
+            matched += 1
+        else:
+            unmatched += 1
+    db.flush()
+    return {"matched": matched, "unmatched": unmatched}
 
 
 def pull_packages(db: Session) -> dict:

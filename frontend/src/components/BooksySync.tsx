@@ -26,6 +26,8 @@ interface RegSummary {
   days: number;
   sessions: number;
   package_redemptions: number;
+  redemptions_matched: number;
+  redemptions_unmatched: number;
   cash_total: string;
   fiscal_total: string;
 }
@@ -342,7 +344,8 @@ export default function BooksySync() {
           </button>
           {regSummary && (
             <ul class="summary">
-              <li>Dni z kasą: <b>{regSummary.days}</b> · transakcji: <b>{regSummary.sessions}</b> · pakiety: <b>{regSummary.package_redemptions}</b></li>
+              <li>Dni z kasą: <b>{regSummary.days}</b> · transakcji: <b>{regSummary.sessions}</b></li>
+              <li>Realizacje pakietów: <b>{regSummary.redemptions_matched}</b> z prowizją{regSummary.redemptions_unmatched > 0 ? `, ${regSummary.redemptions_unmatched} do sprawdzenia` : ''}</li>
               <li>Gotówka z Booksy: <b>{Number(regSummary.cash_total).toLocaleString('pl-PL')} zł</b></li>
               <li>Kasa fiskalna: <b>{Number(regSummary.fiscal_total).toLocaleString('pl-PL')} zł</b></li>
             </ul>

@@ -16,7 +16,15 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Employee, EmployeeAlias, LedgerEntry, NotebookEntry, TimesheetEntry, Visit
+from app.models import (
+    Employee,
+    EmployeeAlias,
+    LedgerEntry,
+    NotebookEntry,
+    PackageRedemption,
+    TimesheetEntry,
+    Visit,
+)
 
 
 def month_bounds(year_month: str) -> tuple[date, date]:
@@ -71,17 +79,27 @@ def monthly_booksy_services(db: Session, employee_id: int, year_month: str) -> D
 
 
 def monthly_notebook_services(db: Session, employee_id: int, year_month: str) -> Decimal:
-    """Sum of prepaid (package/voucher) visits performed this month, credited to
-    the employee — feeds the services commission base."""
+    """Prepaid-services commission base for the month: manual notebook entries
+    (legacy 'zeszyt') PLUS package redemptions auto-derived from Booksy. Both
+    are the same thing — a prepaid treatment the performer earns commission on
+    (value_per_treatment) — so they sum into the settlement's `notebook_services`.
+    Going forward packages come from Booksy; the manual notebook is the fallback."""
     start, end = month_bounds(year_month)
-    total = db.scalar(
+    manual = db.scalar(
         select(func.coalesce(func.sum(NotebookEntry.amount_pln), 0)).where(
             NotebookEntry.employee_id == employee_id,
             NotebookEntry.entry_date >= start,
             NotebookEntry.entry_date < end,
         )
     )
-    return Decimal(str(total))
+    packages = db.scalar(
+        select(func.coalesce(func.sum(PackageRedemption.value), 0)).where(
+            PackageRedemption.employee_id == employee_id,
+            PackageRedemption.redemption_date >= start,
+            PackageRedemption.redemption_date < end,
+        )
+    )
+    return Decimal(str(manual)) + Decimal(str(packages))
 
 
 @dataclass(frozen=True)

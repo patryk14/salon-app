@@ -75,7 +75,9 @@ class RangeRequest(BaseModel):
 class RegisterImportSummary(BaseModel):
     days: int
     sessions: int  # number of till transactions read
-    package_redemptions: int  # 'Pakiet' rows (future zeszyt auto-derivation)
+    package_redemptions: int  # 'Pakiet' rows seen
+    redemptions_matched: int  # package + performer resolved → commission credited
+    redemptions_unmatched: int  # flagged: no package or no performer that day
     cash_total: str  # Σ gotówka z Booksy (metoda = Gotówka)
     fiscal_total: str  # Σ kasa fiskalna (wszystkie metody = gotówka + karta)
 

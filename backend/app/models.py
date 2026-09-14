@@ -476,3 +476,23 @@ class Package(TimestampMixin, Base):
     valid_until: Mapped[date | None] = mapped_column(Date)
 
     __table_args__ = (Index("ix_packages_client", "client_id"),)
+
+
+class PackageRedemption(TimestampMixin, Base):
+    """One package treatment performed (from Booksy 'Pakiet' till transactions).
+    Credits `value` (= package value_per_treatment) to the performer's SERVICES
+    commission base for the month — the automatic replacement for the manual
+    'zeszyt'. Idempotent on the Booksy document number. package_id/employee_id
+    are nullable: an unmatched redemption is flagged, never silently dropped."""
+
+    __tablename__ = "package_redemptions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    booksy_ref: Mapped[str] = mapped_column(String(40), unique=True)  # Numer dokumentu
+    package_id: Mapped[int | None] = mapped_column(ForeignKey("packages.id", ondelete="SET NULL"))
+    employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id", ondelete="SET NULL"))
+    client_name: Mapped[str] = mapped_column(String(200))
+    redemption_date: Mapped[date] = mapped_column(Date, nullable=False)
+    value: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
+
+    __table_args__ = (Index("ix_package_redemptions_emp_date", "employee_id", "redemption_date"),)

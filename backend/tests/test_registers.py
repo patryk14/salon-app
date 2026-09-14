@@ -37,6 +37,8 @@ def test_parse_cash_transactions_by_method() -> None:
     p = parse_cash_transactions(grid)
     assert p.transactions == 4
     assert p.package_redemptions == 1
+    assert len(p.package_txs) == 1
+    assert p.package_txs[0][1] == "B"  # (date, client, doc) of the Pakiet row
 
     d12, d11 = date(2026, 9, 12), date(2026, 9, 11)
     assert p.by_day[d12]["booksy_cash"] == Decimal("0")  # only card + package that day

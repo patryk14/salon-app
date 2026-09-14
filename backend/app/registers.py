@@ -14,7 +14,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 
 # Column indexes in Booksy's transactions export.
-_C = {"date": 2, "client": 5, "staff": 6, "inflow": 7, "outflow": 8, "method": 9}
+_C = {"doc": 3, "date": 2, "client": 5, "staff": 6, "inflow": 7, "outflow": 8, "method": 9}
 
 
 @dataclass
@@ -22,7 +22,10 @@ class ParsedRegisters:
     # closing/transaction date -> {"booksy_cash": cash, "fiscal_register": cash+card}
     by_day: dict[date, dict[str, Decimal]] = field(default_factory=dict)
     transactions: int = 0
-    package_redemptions: int = 0  # 'Pakiet' rows — future zeszyt auto-derivation
+    package_redemptions: int = 0  # count of 'Pakiet' rows
+    # (redemption_date, client_name, doc_number) per 'Pakiet' row — for crediting
+    # package commission to the day's performer.
+    package_txs: list[tuple[date, str, str]] = field(default_factory=list)
 
 
 def _num(cell: object) -> Decimal:
@@ -73,5 +76,8 @@ def parse_cash_transactions(grid: list[list[object]]) -> ParsedRegisters:
             agg["booksy_cash"] += inflow
         if "pakiet" in method:
             out.package_redemptions += 1
+            client = str(r[_C["client"]]).strip() if r[_C["client"]] is not None else ""
+            doc = str(r[_C["doc"]]).strip() if r[_C["doc"]] is not None else ""
+            out.package_txs.append((day, client, doc))
         out.transactions += 1
     return out

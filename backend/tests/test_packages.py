@@ -83,3 +83,54 @@ def test_parse_packages_summary() -> None:
 def test_packages_endpoint_admin_only(portal_client: TestClient) -> None:
     portal_client.as_user("staff-sub", {"staff"})
     assert portal_client.get("/packages").status_code == 403
+
+
+def test_package_redemption_feeds_notebook_services() -> None:
+    """A package redemption credits the performer's prepaid-services base
+    (notebook_services), summed with the legacy manual notebook."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    from app.derivation import monthly_notebook_services
+    from app.models import Base, Employee, NotebookEntry, PackageRedemption
+
+    eng = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(eng)
+    db = sessionmaker(bind=eng)()
+    e = Employee(display_name="Ola")
+    db.add(e)
+    db.flush()
+    db.add(
+        NotebookEntry(
+            employee_id=e.id,
+            entry_date=date(2026, 9, 5),
+            service_name="X",
+            amount_pln=Decimal("100"),
+        )
+    )
+    db.add(
+        PackageRedemption(
+            booksy_ref="D1",
+            employee_id=e.id,
+            client_name="K",
+            redemption_date=date(2026, 9, 10),
+            value=Decimal("133"),
+        )
+    )
+    db.add(
+        PackageRedemption(
+            booksy_ref="D2",
+            employee_id=e.id,
+            client_name="K",
+            redemption_date=date(2026, 10, 1),
+            value=Decimal("50"),
+        )
+    )
+    db.flush()
+    assert monthly_notebook_services(db, e.id, "2026-09") == Decimal(
+        "233"
+    )  # 100 manual + 133 package
+    db.close()
