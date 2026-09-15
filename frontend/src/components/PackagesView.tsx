@@ -52,6 +52,7 @@ export default function PackagesView() {
   const [unmatched, setUnmatched] = useState<Redemption[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [filter, setFilter] = useState('active');
   const [open, setOpen] = useState<number | null>(null);
   const [form, setForm] = useState<{ employee_id: string; note: string; date: string }>({
     employee_id: '',
@@ -142,6 +143,8 @@ export default function PackagesView() {
     );
   }
 
+  const shown = filter === 'all' ? rows : rows.filter((r) => r.status === filter);
+
   return (
     <div>
       {error && <div class="err">Błąd: {error}</div>}
@@ -150,6 +153,18 @@ export default function PackagesView() {
         zaciągnął) — wskaż wykonawczynię, by naliczyć prowizję. Każda ręczna zmiana zapisuje kto i
         kiedy.
       </p>
+
+      <div class="bar">
+        <label class="fld">
+          <span class="lbl">Pokaż</span>
+          <select value={filter} onChange={(e) => setFilter((e.target as HTMLSelectElement).value)}>
+            <option value="active">aktywne</option>
+            <option value="used_up">wykorzystane</option>
+            <option value="expired">wygasłe</option>
+            <option value="all">wszystkie</option>
+          </select>
+        </label>
+      </div>
 
       <div class="scroll">
         <table>
@@ -165,7 +180,7 @@ export default function PackagesView() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((p) => (
+            {shown.map((p) => (
               <>
                 <tr key={p.id} class="clickable" onClick={() => setOpen(open === p.id ? null : p.id)}>
                   <td>{p.client_name}</td>
@@ -220,10 +235,10 @@ export default function PackagesView() {
                 )}
               </>
             ))}
-            {rows.length === 0 && !error && (
+            {shown.length === 0 && !error && (
               <tr>
                 <td colSpan={7} class="muted" style="text-align:center;padding:1.5rem">
-                  Brak pakietów — zsynchronizuj z Booksy.
+                  {rows.length === 0 ? 'Brak pakietów — zsynchronizuj z Booksy.' : 'Brak pakietów w tym widoku.'}
                 </td>
               </tr>
             )}

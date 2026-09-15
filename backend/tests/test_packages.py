@@ -276,10 +276,19 @@ def test_assign_performer_to_unmatched_redemption() -> None:
         redemption_date=date(2026, 9, 1),
         value=Decimal("150"),
     )
-    db.add(r)
+    # a Booksy till artifact: no reservation, no package, value 0 → noise
+    noise = PackageRedemption(
+        booksy_ref="D-till",
+        client_name="Klient bez rezerwacji",
+        redemption_date=date(2026, 9, 2),
+        value=Decimal("0"),
+    )
+    db.add_all([r, noise])
     db.flush()
 
-    assert any(x.id == r.id for x in unmatched_redemptions(db))  # no employee → unmatched
+    ids = {x.id for x in unmatched_redemptions(db)}
+    assert r.id in ids  # value>0, no employee → in queue
+    assert noise.id not in ids  # zero-value till artifact → excluded
 
     user = CurrentUser(sub="admin1", username="admin1", groups=frozenset({"admin"}))
     assign_redemption(r.id, RedemptionAssignIn(employee_id=e.id, note="z grafiku"), user, db)

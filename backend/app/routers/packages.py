@@ -130,11 +130,17 @@ def redeem_package(
 
 @packages.get("/redemptions/unmatched")
 def unmatched_redemptions(db: DbDep) -> list[RedemptionOut]:
-    """Redemptions Booksy couldn't fully resolve — no performer or no linked
-    package — for the owner to assign by hand."""
+    """Redemptions needing a performer (or a package link), for manual assignment.
+    Zero-value rows are skipped: those are Booksy till artifacts — a package rung
+    up on the register with no reservation ('Klient bez rezerwacji'), so there's
+    no client to match and nothing to pay. They stay in the DB but out of the
+    queue."""
     rows = db.scalars(
         select(PackageRedemption)
-        .where(PackageRedemption.employee_id.is_(None) | PackageRedemption.package_id.is_(None))
+        .where(
+            (PackageRedemption.employee_id.is_(None) | PackageRedemption.package_id.is_(None))
+            & (PackageRedemption.value > 0)
+        )
         .order_by(PackageRedemption.redemption_date.desc())
     ).all()
     return [_redemption_out(db, r) for r in rows]
