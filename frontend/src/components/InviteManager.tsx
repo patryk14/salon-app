@@ -10,10 +10,18 @@ interface Employee {
   display_name: string;
   is_active: boolean;
 }
+interface Client {
+  id: number;
+  first_name: string;
+  last_name: string;
+  phone: string | null;
+}
 interface Invite {
   id: number;
   code: string;
+  role: string;
   employee_id: number | null;
+  client_id: number | null;
   expires_at: string | null;
   claimed_at: string | null;
 }
@@ -26,6 +34,8 @@ export default function InviteManager() {
   const [fresh, setFresh] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [clientQ, setClientQ] = useState('');
+  const [clientResults, setClientResults] = useState<Client[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -78,8 +88,41 @@ export default function InviteManager() {
     }
   }
 
+  async function searchClients(e: Event) {
+    e.preventDefault();
+    if (!clientQ.trim()) return;
+    setError(null);
+    try {
+      const page = await apiFetch<{ items: Client[] }>(
+        `/clients?q=${encodeURIComponent(clientQ.trim())}&limit=20`,
+      );
+      setClientResults(page.items);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function createClientInvite(clientId: number) {
+    setBusy(true);
+    setError(null);
+    try {
+      const inv = await apiFetch<Invite>('/invites', {
+        method: 'POST',
+        body: JSON.stringify({ client_id: clientId }),
+      });
+      setFresh(inv.code);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const nameOf = (id: number | null) =>
     employees.find((e) => e.id === id)?.display_name ?? `#${id}`;
+  const targetOf = (inv: Invite) =>
+    inv.role === 'client' ? `Klientka #${inv.client_id}` : nameOf(inv.employee_id);
 
   if (!ready) return <p class="muted">Ładowanie…</p>;
   if (!isAdmin) {
@@ -102,7 +145,7 @@ export default function InviteManager() {
       {fresh && (
         <div class="freshbox">
           Nowy kod zaproszenia: <span class="code">{fresh}</span>
-          <span class="muted small"> — przekaż go pracownicy. Ważny 14 dni, jednorazowy.</span>
+          <span class="muted small"> — przekaż osobie. Ważny 14 dni, jednorazowy.</span>
         </div>
       )}
 
@@ -123,6 +166,37 @@ export default function InviteManager() {
         ))}
       </div>
 
+      <h3>Klientki</h3>
+      <p class="muted small">
+        Wyszukaj klientkę (imię/nazwisko/telefon) i wygeneruj kod — wpisze go w „Mój profil"
+        (<code>/moje</code>), żeby widzieć swoje wizyty, pakiety i vouchery.
+      </p>
+      <form class="row" onSubmit={searchClients}>
+        <input
+          placeholder="Szukaj klientki…"
+          value={clientQ}
+          onInput={(e) => setClientQ((e.target as HTMLInputElement).value)}
+        />
+        <button class="mini" type="submit">
+          Szukaj
+        </button>
+      </form>
+      {clientResults.length > 0 && (
+        <div class="cards">
+          {clientResults.map((c) => (
+            <div class="ecard" key={c.id}>
+              <span class="name">
+                {c.first_name} {c.last_name}
+                {c.phone ? <span class="muted small"> · {c.phone}</span> : null}
+              </span>
+              <button class="mini" disabled={busy} onClick={() => createClientInvite(c.id)}>
+                Utwórz kod
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {invites.length > 0 && (
         <>
           <h3>Kody</h3>
@@ -131,7 +205,7 @@ export default function InviteManager() {
               <thead>
                 <tr>
                   <th>Kod</th>
-                  <th>Pracownica</th>
+                  <th>Kto</th>
                   <th>Wygasa</th>
                   <th>Status</th>
                 </tr>
@@ -140,7 +214,7 @@ export default function InviteManager() {
                 {invites.map((inv) => (
                   <tr key={inv.id}>
                     <td class="code">{inv.code}</td>
-                    <td>{nameOf(inv.employee_id)}</td>
+                    <td>{targetOf(inv)}</td>
                     <td class="nowrap">
                       {inv.expires_at
                         ? new Date(inv.expires_at).toLocaleDateString('pl-PL')

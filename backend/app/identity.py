@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import UserDep
 from app.deps import get_db
-from app.models import Employee, UserAccount
+from app.models import Client, Employee, UserAccount
 
 DbDep = Annotated[Session, Depends(get_db)]
 
@@ -43,3 +43,21 @@ def current_employee(user: UserDep, db: DbDep) -> Employee:
 
 
 EmployeeDep = Annotated[Employee, Depends(current_employee)]
+
+
+def current_client(user: UserDep, db: DbDep) -> Client:
+    """The Client this client login is linked to (F7). 403 until an invite is
+    claimed — a wrong link would expose another client's visits and packages."""
+    account = account_for(db, user.sub)
+    if account is None or account.client_id is None:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="account not linked to a client — claim an invite code first",
+        )
+    client = db.get(Client, account.client_id)
+    if client is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="linked client not found")
+    return client
+
+
+ClientDep = Annotated[Client, Depends(current_client)]

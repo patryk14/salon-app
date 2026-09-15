@@ -4,7 +4,7 @@ from datetime import date, datetime, time
 from decimal import Decimal
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 
 class VisitStatus(StrEnum):
@@ -298,8 +298,17 @@ class NotebookOut(BaseModel):
 
 # ------------------------------------------------------ identity / staff portal (F6)
 class InviteCreate(BaseModel):
-    employee_id: int
+    """Exactly one target: an employee (staff invite) or a client (F7 invite)."""
+
+    employee_id: int | None = None
+    client_id: int | None = None
     expires_in_days: int = Field(default=14, ge=1, le=90)
+
+    @model_validator(mode="after")
+    def _exactly_one_target(self) -> "InviteCreate":
+        if (self.employee_id is None) == (self.client_id is None):
+            raise ValueError("give exactly one of employee_id / client_id")
+        return self
 
 
 class InviteOut(BaseModel):
@@ -738,3 +747,35 @@ class RedemptionOut(BaseModel):
     created_by: str | None  # audit: who marked a manual one
     assigned_by: str | None  # audit: who set the performer
     created_at: datetime
+
+
+# --- Client portal (F7) ---
+class ClientMeOut(BaseModel):
+    """The client login's link state + a light profile. Never exposes
+    Client.notes (owner rule: the note is staff/admin-only)."""
+
+    linked: bool
+    client_id: int | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    total_visits: int = 0
+    first_visit: datetime | None = None
+    last_visit: datetime | None = None
+
+
+class ClientPackageOut(BaseModel):
+    name: str
+    total_treatments: int
+    remaining: int  # effective (Booksy − manual marks)
+    valid_until: date | None
+    status: str  # active | used_up | expired
+
+
+class ClientVoucherOut(BaseModel):
+    description: str
+    total_value: Decimal
+    remaining_value: Decimal
+    valid_until: date | None
+    status: str  # active | used | expired

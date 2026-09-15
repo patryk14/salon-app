@@ -10,9 +10,16 @@ export default function AuthCallback() {
     (async () => {
       try {
         const user = await handleCallback();
-        // Land each role on its own home: only admins go to the settlement panel;
-        // everyone else (staff) goes to the staff portal — they never see admin.
-        const dest = groupsOf(user).includes('admin') ? '/panel' : '/panel/pracownik';
+        // Land each role on its own home: admins → settlement panel, staff → their
+        // portal (they never see admin), clients → their own profile.
+        const g = groupsOf(user);
+        const dest = g.includes('admin')
+          ? '/panel'
+          : g.includes('staff')
+            ? '/panel/pracownik'
+            : g.includes('client')
+              ? '/moje'
+              : '/panel/pracownik';
         window.location.replace(dest);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));

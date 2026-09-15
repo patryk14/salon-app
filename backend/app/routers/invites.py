@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.auth import UserDep, require_role
 from app.deps import get_db
 from app.identity import account_for
-from app.models import Employee, Invite, UserAccount, utcnow
+from app.models import Client, Employee, Invite, UserAccount, utcnow
 from app.schemas import InviteClaim, InviteCreate, InviteOut, MeLink
 
 DbDep = Annotated[Session, Depends(get_db)]
@@ -38,9 +38,16 @@ def _new_code(n: int = 8) -> str:
 
 @invites.post("", status_code=status.HTTP_201_CREATED)
 def create_invite(payload: InviteCreate, db: DbDep) -> InviteOut:
-    emp = db.get(Employee, payload.employee_id)
-    if emp is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="employee not found")
+    """One-time code for a staff (employee_id) or client (client_id) target. The
+    schema guarantees exactly one is set."""
+    if payload.client_id is not None:
+        if db.get(Client, payload.client_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="client not found")
+        role, employee_id, client_id = "client", None, payload.client_id
+    else:
+        if db.get(Employee, payload.employee_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="employee not found")
+        role, employee_id, client_id = "staff", payload.employee_id, None
     # Unique column protects us; retry on the astronomically unlikely collision.
     for _ in range(5):
         code = _new_code()
@@ -50,8 +57,9 @@ def create_invite(payload: InviteCreate, db: DbDep) -> InviteOut:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="could not allocate code")
     invite = Invite(
         code=code,
-        role="staff",
-        employee_id=emp.id,
+        role=role,
+        employee_id=employee_id,
+        client_id=client_id,
         expires_at=utcnow() + timedelta(days=payload.expires_in_days),
     )
     db.add(invite)
