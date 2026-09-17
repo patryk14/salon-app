@@ -10,6 +10,7 @@ runtime image gains no dependency.
 """
 
 import io
+import json
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
@@ -89,6 +90,104 @@ def download_report(
         if e.code in (401, 403):
             raise BooksyAuthError("Booksy odrzucił poświadczenia — token wygasł, odśwież") from e
         raise BooksyAuthError(f"Booksy zwrócił HTTP {e.code}") from e
+
+
+CUSTOMERS_URL = "https://pl.booksy.com/core/v2/business_api/me/businesses/{business_id}/customers"
+
+
+def _get_json(creds: BooksyCredentials, url: str, timeout: int = 60) -> dict:
+    """Authenticated GET returning JSON (same header shape as download_report)."""
+    req = urllib.request.Request(
+        url,
+        headers={
+            "x-access-token": creds.access_token,
+            "x-api-key": creds.api_key,
+            "x-fingerprint": creds.fingerprint,
+            "x-app-version": "3.0",
+            "accept": "application/json, text/plain, */*",
+            "user-agent": "charmskin-sync/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (fixed https host)
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            raise BooksyAuthError("Booksy odrzucił poświadczenia — token wygasł, odśwież") from e
+        raise BooksyAuthError(f"Booksy zwrócił HTTP {e.code}") from e
+
+
+def pull_customers(db: Session, per_page: int = 100, max_pages: int = 60) -> dict:
+    """Backfill client contacts + consents from Booksy's customers API (F7 v2).
+
+    Booksy's `id` is the stable identity key; `merged_data` carries name, phone,
+    email and consents. Match an existing Client by that id, else by name (only a
+    row not already linked, so we never steal another person's link), else create
+    a new one. Contacts/consents are the base for self-signup and reminders."""
+    from app.models import Client
+
+    creds = load_credentials(db)
+    existing = db.scalars(select(Client)).all()
+    by_booksy = {c.booksy_customer_id: c for c in existing if c.booksy_customer_id}
+    by_name: dict[tuple[str, str], list] = {}
+    for c in existing:
+        by_name.setdefault((c.first_name.strip().lower(), c.last_name.strip().lower()), []).append(
+            c
+        )
+
+    total = created = updated = with_email = with_phone = 0
+    url_base = CUSTOMERS_URL.format(business_id=creds.business_id)
+    for page in range(1, max_pages + 1):
+        data = _get_json(creds, f"{url_base}?per_page={per_page}&page={page}")
+        customers = data.get("customers", [])
+        if not customers:
+            break
+        for cu in customers:
+            md = cu.get("merged_data") or cu.get("customer_profile") or {}
+            bid = md.get("id") or cu.get("_id")
+            first = (md.get("first_name") or "").strip()
+            last = (md.get("last_name") or "").strip()
+            if not (first or last):  # nameless ghost record → skip
+                continue
+            total += 1
+            phone = (md.get("cell_phone") or "").strip() or None
+            email = (md.get("email") or "").strip() or None
+
+            row = by_booksy.get(bid) if bid else None
+            if row is None:
+                candidates = [
+                    c
+                    for c in by_name.get((first.lower(), last.lower()), [])
+                    if c.booksy_customer_id is None
+                ]
+                row = candidates[0] if candidates else None
+            if row is None:
+                row = Client(first_name=first or "?", last_name=last or "?")
+                db.add(row)
+                created += 1
+            else:
+                updated += 1
+            if bid:
+                row.booksy_customer_id = bid
+                by_booksy[bid] = row
+            if phone:
+                row.phone = phone
+                with_phone += 1
+            if email:
+                row.email = email
+                with_email += 1
+            row.marketing_consent = bool(md.get("marketing_agreement"))
+            row.privacy_consent = bool(md.get("privacy_policy_agreement"))
+        db.flush()
+        if len(customers) < per_page:
+            break
+    return {
+        "customers": total,
+        "created": created,
+        "updated": updated,
+        "with_email": with_email,
+        "with_phone": with_phone,
+    }
 
 
 def pull_visits(db: Session, report_key: str, date_from: str, date_till: str) -> ImportSummary:

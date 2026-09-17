@@ -91,6 +91,14 @@ class PackageSyncSummary(BaseModel):
     removed_expired: int = 0  # pruned stale rows with no redemption history
 
 
+class CustomerSyncSummary(BaseModel):
+    customers: int  # named customers seen
+    created: int  # new client rows
+    updated: int  # existing rows linked/refreshed
+    with_email: int  # rows that got an email (→ self-signup auto-link)
+    with_phone: int
+
+
 def _client_for(db: Session, cache: dict[str, Client], name: str) -> tuple[Client, bool]:
     if name in cache:
         return cache[name], False
@@ -317,5 +325,17 @@ def pull_booksy_packages(db: Annotated[Session, Depends(get_db)]) -> PackageSync
 
     try:
         return PackageSyncSummary(**pull_packages(db))
+    except BooksyAuthError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
+
+
+@router.post("/booksy/customers", status_code=status.HTTP_200_OK)
+def pull_booksy_customers(db: Annotated[Session, Depends(get_db)]) -> CustomerSyncSummary:
+    """Backfill client contacts + consents from Booksy's customers API (F7 v2) —
+    the base for self-service signup (auto-link by verified email) and reminders."""
+    from app.booksy_api import BooksyAuthError, pull_customers  # lazy: avoids import cycle
+
+    try:
+        return CustomerSyncSummary(**pull_customers(db))
     except BooksyAuthError as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e

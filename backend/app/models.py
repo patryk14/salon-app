@@ -10,6 +10,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     CheckConstraint,
     Date,
     DateTime,
@@ -52,6 +53,11 @@ class Client(TimestampMixin, Base):
     phone: Mapped[str | None] = mapped_column(String(20), index=True)
     email: Mapped[str | None] = mapped_column(String(254))
     notes: Mapped[str | None] = mapped_column(Text)
+    # Booksy customer id — the stable identity key (F7 v2). Contacts + consents are
+    # backfilled from Booksy's customers API; consents gate reminders/marketing.
+    booksy_customer_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, index=True)
+    marketing_consent: Mapped[bool] = mapped_column(default=False)
+    privacy_consent: Mapped[bool] = mapped_column(default=False)
 
     visits: Mapped[list["Visit"]] = relationship(
         back_populates="client", cascade="all, delete-orphan", passive_deletes=True
