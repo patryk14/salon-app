@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     # dev user pool. No defaults — missing auth config must stop startup.
     auth_issuer: str
     auth_audience: str
+    # Cognito Hosted UI domain (…​.auth.<region>.amazoncognito.com). Used only to
+    # call the userInfo endpoint when auto-linking a self-signed-up client to her
+    # Client row by verified email (F7 v2). Optional: no value → auto-link is off
+    # and the client falls back to an invite code.
+    cognito_domain: str | None = None
 
     @property
     def cors_origin_list(self) -> list[str]:

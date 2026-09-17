@@ -7,16 +7,19 @@ note is staff/admin-only (owner rule). Admin passes the group gate but has no
 client link, so /klient/me reports linked=false for the owner.
 """
 
+import json
+import urllib.request
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from sqlalchemy import func, select
 
 from app.auth import UserDep, require_role
+from app.config import get_settings
 from app.derivation import month_bounds
 from app.identity import ClientDep, DbDep, account_for
-from app.models import Client, Package, PackageRedemption, Visit, Voucher
+from app.models import Client, Package, PackageRedemption, UserAccount, Visit, Voucher
 from app.schemas import ClientMeOut, ClientPackageOut, ClientVoucherOut, VisitBrowseOut
 
 MonthQuery = Annotated[str, Query(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")]
@@ -26,19 +29,13 @@ client_portal = APIRouter(
 )
 
 
-@client_portal.get("/me")
-def whoami(user: UserDep, db: DbDep) -> ClientMeOut:
-    """The caller's link state + light profile. Must NOT require a link — it's
-    what drives the claim box on first login."""
-    account = account_for(db, user.sub)
-    if account is None or account.client_id is None:
-        return ClientMeOut(linked=False)
-    c = db.get(Client, account.client_id)
+def _client_me(db: DbDep, client_id: int) -> ClientMeOut:
+    c = db.get(Client, client_id)
     if c is None:
         return ClientMeOut(linked=False)
     stats = db.execute(
         select(func.count(Visit.id), func.min(Visit.starts_at), func.max(Visit.starts_at)).where(
-            Visit.client_id == account.client_id
+            Visit.client_id == client_id
         )
     ).one()
     return ClientMeOut(
@@ -52,6 +49,62 @@ def whoami(user: UserDep, db: DbDep) -> ClientMeOut:
         first_visit=stats[1],
         last_visit=stats[2],
     )
+
+
+@client_portal.get("/me")
+def whoami(user: UserDep, db: DbDep) -> ClientMeOut:
+    """The caller's link state + light profile. Must NOT require a link — it's
+    what drives the claim box / signup flow on first login."""
+    account = account_for(db, user.sub)
+    if account is None or account.client_id is None:
+        return ClientMeOut(linked=False)
+    return _client_me(db, account.client_id)
+
+
+def _verified_email(token: str) -> str | None:
+    """The caller's VERIFIED email straight from Cognito's userInfo — never the
+    client-supplied value, so it can't be spoofed to claim another profile."""
+    domain = get_settings().cognito_domain
+    if not domain or not token:
+        return None
+    req = urllib.request.Request(
+        f"{domain}/oauth2/userInfo", headers={"authorization": f"Bearer {token}"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310 (fixed https host)
+            info = json.loads(resp.read())
+    except Exception:
+        return None
+    if str(info.get("email_verified")).lower() != "true":
+        return None
+    email = (info.get("email") or "").strip().lower()
+    return email or None
+
+
+@client_portal.post("/me/link")
+def auto_link(request: Request, user: UserDep, db: DbDep) -> ClientMeOut:
+    """Auto-link a self-signed-up client to her Client row by VERIFIED email
+    (F7 v2). Idempotent; unambiguous match only (0 or >1 → stays unlinked, the
+    client falls back to an invite code)."""
+    account = account_for(db, user.sub)
+    if account is not None and account.client_id is not None:
+        return _client_me(db, account.client_id)
+
+    token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    email = _verified_email(token)
+    if not email:
+        return ClientMeOut(linked=False)
+
+    taken = select(UserAccount.client_id).where(UserAccount.client_id.is_not(None))
+    matches = db.scalars(
+        select(Client).where(func.lower(Client.email) == email, Client.id.not_in(taken))
+    ).all()
+    if len(matches) != 1:  # no match, or ambiguous → fall back to a code
+        return ClientMeOut(linked=False)
+
+    db.add(UserAccount(cognito_sub=user.sub, role="client", client_id=matches[0].id))
+    db.flush()
+    return _client_me(db, matches[0].id)
 
 
 @client_portal.get("/me/visits")

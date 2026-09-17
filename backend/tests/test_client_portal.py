@@ -54,6 +54,43 @@ def test_unlinked_client_gets_claim_box_but_no_data(portal_client: TestClient) -
     assert portal_client.get("/klient/me/visits?month=2026-09").status_code == 403
 
 
+def test_auto_link_by_verified_email(portal_client: TestClient, monkeypatch) -> None:
+    from app.routers import client_portal
+
+    c = portal_client.post(
+        "/clients", json={"first_name": "Anna", "last_name": "Mail", "email": "anna@x.pl"}
+    ).json()
+    # stand in for the Cognito userInfo call — a VERIFIED email
+    monkeypatch.setattr(client_portal, "_verified_email", lambda token: "anna@x.pl")
+
+    portal_client.as_user("client-auto", {"client"})
+    body = portal_client.post("/klient/me/link").json()
+    assert body["linked"] is True and body["client_id"] == c["id"]
+    # idempotent — a second call stays linked, no error
+    assert portal_client.post("/klient/me/link").json()["linked"] is True
+
+
+def test_auto_link_ambiguous_or_missing_email_stays_unlinked(
+    portal_client: TestClient, monkeypatch
+) -> None:
+    from app.routers import client_portal
+
+    portal_client.post(
+        "/clients", json={"first_name": "A", "last_name": "One", "email": "dup@x.pl"}
+    )
+    portal_client.post(
+        "/clients", json={"first_name": "B", "last_name": "Two", "email": "dup@x.pl"}
+    )
+    monkeypatch.setattr(client_portal, "_verified_email", lambda token: "dup@x.pl")
+    portal_client.as_user("client-dup", {"client"})
+    assert portal_client.post("/klient/me/link").json()["linked"] is False  # ambiguous → code
+
+    # no verified email at all → unlinked
+    monkeypatch.setattr(client_portal, "_verified_email", lambda token: None)
+    portal_client.as_user("client-none", {"client"})
+    assert portal_client.post("/klient/me/link").json()["linked"] is False
+
+
 def test_client_portal_is_row_scoped() -> None:
     from app.models import Client, Package, Visit, Voucher
     from app.routers.client_portal import my_packages, my_visits, my_vouchers

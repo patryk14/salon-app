@@ -82,7 +82,17 @@ export default function MojePortal() {
   async function loadMe() {
     setError(null);
     try {
-      setMe(await apiFetch<Me>('/klient/me'));
+      let me = await apiFetch<Me>('/klient/me');
+      // Self-signed-up client: try to auto-link her to her profile by verified
+      // email before falling back to the invite-code box.
+      if (!me.linked) {
+        try {
+          me = await apiFetch<Me>('/klient/me/link', { method: 'POST' });
+        } catch {
+          /* auto-link unavailable → code fallback */
+        }
+      }
+      setMe(me);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -137,6 +147,10 @@ export default function MojePortal() {
         <button class="btn primary" onClick={() => login()}>
           Zaloguj się
         </button>
+        <p class="muted small">
+          Pierwszy raz? Kliknij powyżej i wybierz <b>„Zarejestruj się"</b> na stronie logowania —
+          jeśli masz u nas maila, konto połączy się z Twoim profilem automatycznie.
+        </p>
       </div>
     );
   }
