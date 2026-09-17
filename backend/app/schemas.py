@@ -106,6 +106,7 @@ class EmployeeUpdate(BaseModel):
     fte_factor: Decimal | None = Field(default=None, gt=0, le=1, max_digits=4, decimal_places=2)
     pay_type: PayType | None = None
     hourly_rate: Decimal | None = Field(default=None, ge=0, max_digits=6, decimal_places=2)
+    monthly_base_pln: Decimal | None = Field(default=None, ge=0, max_digits=10, decimal_places=2)
     active_to: date | None = None  # set = mark former employee
 
 
@@ -128,6 +129,7 @@ class EmployeeOut(BaseModel):
     fte_factor: Decimal
     pay_type: PayType
     hourly_rate: Decimal
+    monthly_base_pln: Decimal | None = None
     active_from: date | None
     active_to: date | None
     is_active: bool
@@ -779,3 +781,24 @@ class ClientVoucherOut(BaseModel):
     remaining_value: Decimal
     valid_until: date | None
     status: str  # active | used | expired
+
+
+# --- Staff cost + salon break-even (wydatki page) ---
+class StaffCostRow(BaseModel):
+    employee_id: int
+    name: str
+    pay_type: str  # hourly | uop_plus_extra
+    hours: Decimal
+    revenue: Decimal  # utarg usług miesiąca (aktualny)
+    base_cost: Decimal  # godziny×stawka, lub pensja + nadgodziny (UoP)
+    commission: Decimal  # prowizja aktualna
+    total_cost: Decimal  # base_cost + commission
+    breakeven_revenue: Decimal  # utarg, przy którym salon pokrywa jej koszt
+    over_under: Decimal  # revenue − total_cost (>0 = salon na plusie)
+    needs_base: bool  # UoP bez ustawionej pensji → poproś o wpisanie
+
+
+class StaffCostOut(BaseModel):
+    year_month: str
+    rows: list[StaffCostRow]
+    total_cost: Decimal  # Σ total_cost = KOSZT PRACOWNICY

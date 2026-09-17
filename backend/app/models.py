@@ -127,6 +127,10 @@ class Employee(TimestampMixin, Base):
     # UoP base is the accountant's and only EXTRA hours are paid here.
     pay_type: Mapped[str] = mapped_column(String(20), default="hourly")
     hourly_rate: Mapped[Decimal] = mapped_column(Numeric(6, 2), default=Decimal("31.40"))
+    # Fixed monthly employer cost for a UoP employee (Klaudia — minimum wage + ZUS),
+    # who is paid the same every month regardless of hours; NULL for hourly staff
+    # (their base is hours × rate). Used for the salon break-even per employee.
+    monthly_base_pln: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     active_from: Mapped[date | None] = mapped_column(Date)
     active_to: Mapped[date | None] = mapped_column(Date)  # set = former employee (Weronika)
 

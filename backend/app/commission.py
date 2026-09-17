@@ -110,6 +110,33 @@ def services_rate(services_base: Decimal, scheme: CommissionScheme) -> Decimal:
     return rate
 
 
+def breakeven_revenue(base_cost, scheme: CommissionScheme) -> Decimal:
+    """The services revenue at which the salon covers `base_cost` (the employee's
+    non-commission cost — logged hours × rate, or a UoP fixed salary): the
+    smallest R with R − commission(R) ≥ base_cost, i.e. R·(1 − rate(R)) ≥
+    base_cost. Rate is a slab step function, so this scans the FTE-scaled
+    brackets. Rounded up to the whole złoty."""
+    base = _d(base_cost)
+    if base <= 0:
+        return Decimal("0")
+    fte = _d(scheme.fte_factor)
+    # segments (lower_bound_scaled, rate), starting with the implicit 0% floor
+    segments = [(Decimal("0"), Decimal("0"))]
+    segments += [(_d(lb) * fte, _d(r)) for lb, r in scheme.services_brackets]
+    best: Decimal | None = None
+    for i, (lower, rate) in enumerate(segments):
+        upper = segments[i + 1][0] if i + 1 < len(segments) else None
+        keep = Decimal("1") - rate  # fraction the salon keeps after commission
+        if keep <= 0:
+            continue
+        candidate = max(base / keep, lower)  # smallest R in this segment covering base
+        in_segment = upper is None or candidate < upper
+        if in_segment and (best is None or candidate < best):
+            best = candidate
+    result = best if best is not None else base
+    return result.quantize(Decimal("1"), rounding=ROUND_CEILING)
+
+
 def compute_settlement(inp: SettlementInput, scheme: CommissionScheme) -> SettlementResult:
     services_base = inp.services_base
     sales_base = inp.sales_base

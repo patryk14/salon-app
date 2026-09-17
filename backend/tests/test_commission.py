@@ -153,6 +153,20 @@ def test_new_12pct_bracket_scales_with_fte() -> None:
     assert services_rate(Decimal("7000"), half) == Decimal("0.12")
 
 
+def test_breakeven_revenue() -> None:
+    from app.commission import breakeven_revenue
+
+    s = scheme("1.0")
+    assert breakeven_revenue(Decimal("0"), s) == Decimal("0")
+    # below the 6000 floor commission is 0%, so break-even = the base itself
+    assert breakeven_revenue(Decimal("314"), s) == Decimal("314")
+    assert breakeven_revenue(Decimal("5000"), s) == Decimal("5000")
+    # at/above the floor the 6% slab means R·0.94 must cover the base → ceil(6000/0.94)
+    assert breakeven_revenue(Decimal("6000"), s) == Decimal("6383")
+    # half-timer: floor is 3000, ceil(3000/0.94)
+    assert breakeven_revenue(Decimal("3000"), scheme("0.5")) == Decimal("3192")
+
+
 def test_prepaid_and_cash_join_services_base() -> None:
     # rulings #7/#8: cash + notebook both add to the SERVICES base.
     inp = SettlementInput(

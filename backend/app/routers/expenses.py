@@ -30,6 +30,8 @@ from app.schemas import (
     RecurringIn,
     RecurringOut,
     RecurringUpdate,
+    StaffCostOut,
+    StaffCostRow,
 )
 
 DbDep = Annotated[Session, Depends(get_db)]
@@ -221,6 +223,62 @@ def close_month(year_month: YM, user: UserDep, db: DbDep) -> PnlOut:
     row.closed_by = user.username
     db.flush()
     return _build_pnl(db, year_month, row)
+
+
+@pnl.get("/{year_month}/staff")
+def staff_cost(year_month: YM, db: DbDep) -> StaffCostOut:
+    """Per-employee cost + salon break-even for the month (live, from daily
+    sources). Cost = base (hours × rate, or a UoP fixed salary) + commission.
+    break-even = the services revenue at which the salon covers that cost."""
+    from app.commission import SettlementInput, breakeven_revenue, compute_settlement
+    from app.derivation import (
+        monthly_booksy_services,
+        monthly_cash,
+        monthly_hours,
+        monthly_notebook_services,
+    )
+    from app.models import Employee
+    from app.routers.settlement import _scheme_for
+
+    rows: list[StaffCostRow] = []
+    total = Decimal("0")
+    employees = db.scalars(
+        select(Employee).where(Employee.active_to.is_(None)).order_by(Employee.display_name)
+    ).all()
+    for e in employees:
+        scheme = _scheme_for(e)
+        revenue = (
+            monthly_booksy_services(db, e.id, year_month)
+            + monthly_cash(db, e.id, year_month)
+            + monthly_notebook_services(db, e.id, year_month)
+        )
+        hours = monthly_hours(db, e.id, year_month)
+        result = compute_settlement(SettlementInput(booksy_services=revenue, hours=hours), scheme)
+        commission = result.services_commission + result.sales_commission
+        if e.pay_type == "uop_plus_extra":  # Klaudia: fixed salary + extra hours
+            base_cost = (e.monthly_base_pln or Decimal("0")) + result.hours_pay
+            needs_base = e.monthly_base_pln is None
+        else:  # hourly: base is just logged hours
+            base_cost = result.hours_pay
+            needs_base = False
+        total_cost = base_cost + commission
+        rows.append(
+            StaffCostRow(
+                employee_id=e.id,
+                name=e.display_name,
+                pay_type=e.pay_type,
+                hours=hours,
+                revenue=revenue,
+                base_cost=base_cost,
+                commission=commission,
+                total_cost=total_cost,
+                breakeven_revenue=breakeven_revenue(base_cost, scheme),
+                over_under=revenue - total_cost,
+                needs_base=needs_base,
+            )
+        )
+        total += total_cost
+    return StaffCostOut(year_month=year_month, rows=rows, total_cost=total)
 
 
 @pnl.post("/{year_month}/reopen")

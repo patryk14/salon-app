@@ -56,11 +56,31 @@ function thisMonth(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+interface StaffRow {
+  employee_id: number;
+  name: string;
+  pay_type: string;
+  hours: string;
+  revenue: string;
+  base_cost: string;
+  commission: string;
+  total_cost: string;
+  breakeven_revenue: string;
+  over_under: string;
+  needs_base: boolean;
+}
+interface StaffCost {
+  year_month: string;
+  rows: StaffRow[];
+  total_cost: string;
+}
+
 export default function ExpensesView() {
   const [ready, setReady] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [ym, setYm] = useState(thisMonth());
   const [pnl, setPnl] = useState<Pnl | null>(null);
+  const [staff, setStaff] = useState<StaffCost | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<Record<string, { name: string; amount: string }>>({});
@@ -93,8 +113,34 @@ export default function ExpensesView() {
 
   const load = () => call(`/pnl/${ym}`);
 
+  async function loadStaff() {
+    try {
+      setStaff(await apiFetch<StaffCost>(`/pnl/${ym}/staff`));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function setSalary(id: number, value: string) {
+    setBusy(true);
+    try {
+      await apiFetch(`/employees/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ monthly_base_pln: value || '0' }),
+      });
+      await loadStaff();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   useEffect(() => {
-    if (ready && isAdmin) load();
+    if (ready && isAdmin) {
+      load();
+      loadStaff();
+    }
   }, [ready, isAdmin, ym]);
 
   const closed = pnl?.status === 'closed';
@@ -213,6 +259,73 @@ export default function ExpensesView() {
             <Row label="Podsumowanie kosztów" value={pnl.costs_total} strong />
             <Row label="Zarobek" value={pnl.profit} strong accent={Number(pnl.profit) >= 0} />
           </div>
+
+          {staff && staff.rows.length > 0 && (
+            <section class="cat">
+              <div class="cat-head">
+                <h2>Koszt pracownic — break-even</h2>
+                <span class="muted small">od jakiego utargu salon zarabia na pracownicy</span>
+              </div>
+              <div class="scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Pracownica</th>
+                      <th class="amt">Utarg</th>
+                      <th class="amt">Baza</th>
+                      <th class="amt">Prowizja</th>
+                      <th class="amt">Koszt</th>
+                      <th class="amt">Break-even</th>
+                      <th class="amt">Bilans</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {staff.rows.map((r) => (
+                      <tr key={r.employee_id}>
+                        <td>
+                          {r.name}
+                          {r.pay_type === 'uop_plus_extra' && <span class="tag"> UoP</span>}
+                        </td>
+                        <td class="amt">{pln(r.revenue)}</td>
+                        <td class="amt">
+                          {r.needs_base ? (
+                            <input
+                              class="cell num"
+                              type="number"
+                              step="1"
+                              placeholder="pensja"
+                              style="width:6rem"
+                              onBlur={(e) => {
+                                const v = (e.target as HTMLInputElement).value;
+                                if (v) setSalary(r.employee_id, v);
+                              }}
+                            />
+                          ) : (
+                            pln(r.base_cost)
+                          )}
+                        </td>
+                        <td class="amt">{pln(r.commission)}</td>
+                        <td class="amt">{pln(r.total_cost)}</td>
+                        <td class="amt">
+                          <b>{pln(r.breakeven_revenue)}</b> zł
+                        </td>
+                        <td class="amt">
+                          <span class={Number(r.over_under) >= 0 ? 'pos' : 'neg'}>
+                            {Number(r.over_under) >= 0 ? '+' : ''}
+                            {pln(r.over_under)}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p class="muted small">
+                Baza = godziny×31,40 (lub stała pensja UoP). Break-even = utarg, przy którym utarg
+                pokrywa koszt (baza + prowizja). Bilans = utarg − koszt (na plusie = salon zarabia).
+              </p>
+            </section>
+          )}
 
           <p class="muted small">
             Koszty stałe podpowiadają się z szablonów przy pierwszym otwarciu miesiąca — poprawiaj

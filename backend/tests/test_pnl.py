@@ -116,6 +116,29 @@ def test_derived_revenue_and_staff_cost(db_client: TestClient) -> None:
     assert money(p["profit"]) == money("686")  # 1000 - 314, no expenses
 
 
+def test_staff_cost_breakdown(db_client: TestClient) -> None:
+    db_client.post("/employees", json={"display_name": "Ola", "fte_factor": "1.0"})
+    e2 = db_client.post(
+        "/employees",
+        json={"display_name": "Klaudia", "fte_factor": "1.0", "pay_type": "uop_plus_extra"},
+    ).json()["id"]
+
+    out = db_client.get("/pnl/2026-09/staff").json()
+    assert out["year_month"] == "2026-09"
+    rows = {r["name"]: r for r in out["rows"]}
+    assert {"Ola", "Klaudia"} <= set(rows)
+    assert rows["Klaudia"]["needs_base"] is True  # UoP salary not set yet
+    assert rows["Ola"]["needs_base"] is False
+
+    db_client.patch(f"/employees/{e2}", json={"monthly_base_pln": "4300"})
+    k = next(
+        r for r in db_client.get("/pnl/2026-09/staff").json()["rows"] if r["name"] == "Klaudia"
+    )
+    assert k["needs_base"] is False
+    assert money(k["base_cost"]) == money("4300")  # no hours → base = fixed salary
+    assert money(k["breakeven_revenue"]) == money("4300")  # below floor → break-even = base
+
+
 def test_close_freezes_and_locks_then_reopens(db_client: TestClient) -> None:
     ym = "2026-07"
     db_client.get(f"/pnl/{ym}")
