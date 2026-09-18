@@ -802,3 +802,43 @@ class StaffCostOut(BaseModel):
     year_month: str
     rows: list[StaffCostRow]
     total_cost: Decimal  # Σ total_cost = KOSZT PRACOWNICY
+
+
+# --- Service catalog + rebooking (F8) ---
+class ServiceOut(BaseModel):
+    id: int
+    name: str
+    visit_count: int  # completed visits — helps the owner curate the top ones
+    rebook_interval_days: int | None
+    recommendation: str | None
+    active: bool
+
+
+class ServiceUpdate(BaseModel):
+    rebook_interval_days: int | None = Field(default=None, ge=1, le=1095)
+    recommendation: str | None = None
+    active: bool | None = None
+    clear_interval: bool = False
+
+
+class CatalogSyncSummary(BaseModel):
+    total: int  # services in the catalog after sync
+    created: int  # new names added from visits
+
+
+class RebookingSuggestion(BaseModel):
+    service: str
+    last_visit: date
+    interval_days: int
+    suggested_next: date
+    due: bool  # suggested_next <= today
+    recommendation: str | None
+
+
+class DueRebook(BaseModel):
+    client_id: int
+    client_name: str
+    phone: str | None
+    service: str
+    last_visit: date
+    suggested_next: date

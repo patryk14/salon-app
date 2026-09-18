@@ -15,6 +15,7 @@ from app.config import get_settings
 from app.db import get_engine
 from app.routers import (
     cash,
+    catalog,
     client_portal,
     clients,
     expenses,
@@ -84,4 +85,5 @@ def create_app() -> FastAPI:
     app.include_router(statements.router)
     app.include_router(vouchers.router)
     app.include_router(client_portal.client_portal)
+    app.include_router(catalog.catalog)
     return app

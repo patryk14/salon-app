@@ -39,6 +39,14 @@ interface Voucher {
   valid_until: string | null;
   status: string;
 }
+interface Rebook {
+  service: string;
+  last_visit: string;
+  interval_days: number;
+  suggested_next: string;
+  due: boolean;
+  recommendation: string | null;
+}
 
 const pln = (v: string) => Number(v).toLocaleString('pl-PL', { maximumFractionDigits: 0 });
 const STATUS_PL: Record<string, string> = {
@@ -67,6 +75,7 @@ export default function KlientPortal() {
   const [visits, setVisits] = useState<Visit[]>([]);
   const [pkgs, setPkgs] = useState<Pkg[]>([]);
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
+  const [rebook, setRebook] = useState<Rebook[]>([]);
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -105,14 +114,16 @@ export default function KlientPortal() {
   async function loadData() {
     setError(null);
     try {
-      const [v, p, vo] = await Promise.all([
+      const [v, p, vo, rb] = await Promise.all([
         apiFetch<Visit[]>(`/klient/me/visits?month=${month}`),
         apiFetch<Pkg[]>('/klient/me/packages'),
         apiFetch<Voucher[]>('/klient/me/vouchers'),
+        apiFetch<Rebook[]>('/klient/me/rebooking'),
       ]);
       setVisits(v);
       setPkgs(p);
       setVouchers(vo);
+      setRebook(rb);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -205,6 +216,28 @@ export default function KlientPortal() {
             Wyloguj
           </button>
         </div>
+      )}
+
+      {rebook.length > 0 && (
+        <section>
+          <div class="shead">
+            <h3>Kolejna wizyta</h3>
+          </div>
+          <div class="cards">
+            {rebook.map((r) => (
+              <div class={`card${r.due ? ' due' : ''}`}>
+                <div class="card-t">{r.service}</div>
+                <div class="card-big" style="font-size:1.1rem">
+                  {r.due ? 'Czas na wizytę' : fmtDate(r.suggested_next)}
+                </div>
+                <div class="muted small">
+                  {r.due ? `sugerowana od ${fmtDate(r.suggested_next)}` : 'sugerowany termin'}
+                  {r.recommendation ? ` · ${r.recommendation}` : ''}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
       <section>

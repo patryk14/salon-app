@@ -621,6 +621,21 @@ class StatementTxn(TimestampMixin, Base):
 # entity; a voucher-paid visit is a normal service there, so it never touches the
 # commission base). Partial redemptions draw down remaining_value with an audit
 # trail (who + when).
+class Service(TimestampMixin, Base):
+    """A service (from Booksy visit names), curated for rebooking (F8). The owner
+    sets a rebook interval + a recommendation on the ones that matter; the client
+    portal then suggests her next visit and the admin sees who is due. Synced
+    from distinct completed-visit service names; intervals are kept across syncs."""
+
+    __tablename__ = "services"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), unique=True)  # matches Visit.service_name
+    rebook_interval_days: Mapped[int | None] = mapped_column()  # None = don't suggest rebooking
+    recommendation: Mapped[str | None] = mapped_column(Text)  # "zalecenia" shown to the client
+    active: Mapped[bool] = mapped_column(default=True)
+
+
 class Voucher(TimestampMixin, Base):
     """A gift voucher sold to a client: a złoty value drawn down over time.
     remaining_value is the live balance; status is derived (used / expired /

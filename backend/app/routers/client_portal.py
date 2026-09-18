@@ -9,7 +9,7 @@ client link, so /klient/me reports linked=false for the owner.
 
 import json
 import urllib.request
-from datetime import date
+from datetime import date, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Query, Request
@@ -19,8 +19,14 @@ from app.auth import UserDep, require_role
 from app.config import get_settings
 from app.derivation import month_bounds
 from app.identity import ClientDep, DbDep, account_for
-from app.models import Client, Package, PackageRedemption, UserAccount, Visit, Voucher
-from app.schemas import ClientMeOut, ClientPackageOut, ClientVoucherOut, VisitBrowseOut
+from app.models import Client, Package, PackageRedemption, Service, UserAccount, Visit, Voucher
+from app.schemas import (
+    ClientMeOut,
+    ClientPackageOut,
+    ClientVoucherOut,
+    RebookingSuggestion,
+    VisitBrowseOut,
+)
 
 MonthQuery = Annotated[str, Query(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")]
 
@@ -163,6 +169,51 @@ def my_packages(client: ClientDep, db: DbDep) -> list[ClientPackageOut]:
                 status=status,
             )
         )
+    return out
+
+
+@client_portal.get("/me/rebooking")
+def my_rebooking(client: ClientDep, db: DbDep) -> list[RebookingSuggestion]:
+    """When to come back: for each service she's had that has a rebook interval,
+    her last visit + the suggested next date (soonest first)."""
+    catalog = {
+        s.name: (s.rebook_interval_days, s.recommendation)
+        for s in db.scalars(
+            select(Service).where(
+                Service.active.is_(True), Service.rebook_interval_days.is_not(None)
+            )
+        ).all()
+    }
+    if not catalog:
+        return []
+    rows = db.execute(
+        select(Visit.service_name, func.max(Visit.starts_at))
+        .where(
+            Visit.client_id == client.id,
+            Visit.status == "completed",
+            Visit.service_name.in_(catalog),
+        )
+        .group_by(Visit.service_name)
+    ).all()
+    today = date.today()
+    out: list[RebookingSuggestion] = []
+    for service, last_dt in rows:
+        if last_dt is None:
+            continue
+        interval_days, recommendation = catalog[service]
+        last = last_dt.date() if hasattr(last_dt, "date") else last_dt
+        nxt = last + timedelta(days=interval_days)
+        out.append(
+            RebookingSuggestion(
+                service=service,
+                last_visit=last,
+                interval_days=interval_days,
+                suggested_next=nxt,
+                due=nxt <= today,
+                recommendation=recommendation,
+            )
+        )
+    out.sort(key=lambda x: x.suggested_next)
     return out
 
 
