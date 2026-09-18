@@ -142,7 +142,11 @@ def _build_pnl(db: Session, year_month: str, row: PnlMonth) -> PnlOut:
         staff, staff_source = row.staff_cost_override, "override"
     else:
         derived = month_staff_cost(db, year_month)
-        staff, staff_source = (Decimal("0"), "none") if derived is None else (derived, "settlement")
+        if derived is not None and derived > 0:  # a real settlement is entered → authoritative
+            staff, staff_source = derived, "settlement"
+        else:  # no settlement yet → live estimate (statutory hours + commission)
+            _, staff = _staff_rows(db, year_month)
+            staff_source = "estimate"
 
     t = totals(revenue, cat_totals, staff)
     return PnlOut(
@@ -225,11 +229,10 @@ def close_month(year_month: YM, user: UserDep, db: DbDep) -> PnlOut:
     return _build_pnl(db, year_month, row)
 
 
-@pnl.get("/{year_month}/staff")
-def staff_cost(year_month: YM, db: DbDep) -> StaffCostOut:
-    """Per-employee cost + salon break-even for the month (live, from daily
-    sources). Cost = base (hours × rate, or a UoP fixed salary) + commission.
-    break-even = the services revenue at which the salon covers that cost."""
+def _staff_rows(db: Session, year_month: str) -> tuple[list[StaffCostRow], Decimal]:
+    """Per-employee cost + break-even for the month (live). Base = statutory month
+    hours × FTE × rate for zlecenie (or logged if higher), or a UoP fixed salary;
+    plus commission. Shared by the /staff view and the P&L staff-cost estimate."""
     from app.commission import SettlementInput, breakeven_revenue, compute_settlement
     from app.derivation import (
         monthly_booksy_services,
@@ -283,6 +286,13 @@ def staff_cost(year_month: YM, db: DbDep) -> StaffCostOut:
             )
         )
         total += total_cost
+    return rows, total
+
+
+@pnl.get("/{year_month}/staff")
+def staff_cost(year_month: YM, db: DbDep) -> StaffCostOut:
+    """Per-employee cost + salon break-even for the month (live, from daily sources)."""
+    rows, total = _staff_rows(db, year_month)
     return StaffCostOut(year_month=year_month, rows=rows, total_cost=total)
 
 

@@ -48,6 +48,7 @@ const STAFF_SRC: Record<string, string> = {
   settlement: 'z rozliczeń (godziny + prowizja)',
   override: 'ręcznie',
   snapshot: 'zamrożone',
+  estimate: 'szacunek (godziny etatowe + prowizja)',
   none: 'brak rozliczenia w tym miesiącu',
 };
 
