@@ -14,6 +14,7 @@ sheet exactly:
 """
 
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -52,6 +53,19 @@ def ensure_categories(db: Session) -> None:
 
 def _sum(db: Session, col, *where) -> Decimal:
     return Decimal(str(db.scalar(select(func.coalesce(func.sum(col), 0)).where(*where))))
+
+
+def standard_monthly_hours(year_month: str) -> int:
+    """Statutory full-time hours for the month = Polish working days (Mon–Fri)
+    × 8. Used as the base salary hours for hourly (zlecenie) staff when they
+    haven't logged their own — the owner's "176 h in September" figure. (Public
+    holidays are not yet subtracted — a v1 approximation; September has none.)"""
+    from calendar import monthrange
+
+    y, m = int(year_month[:4]), int(year_month[5:7])
+    last = monthrange(y, m)[1]
+    weekdays = sum(1 for d in range(1, last + 1) if date(y, m, d).weekday() < 5)
+    return weekdays * 8
 
 
 def month_money_total(db: Session, year_month: str) -> Decimal:

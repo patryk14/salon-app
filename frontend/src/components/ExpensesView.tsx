@@ -267,7 +267,7 @@ export default function ExpensesView() {
                 <span class="muted small">od jakiego utargu salon zarabia na pracownicy</span>
               </div>
               <div class="scroll">
-                <table>
+                <table class="staff">
                   <thead>
                     <tr>
                       <th>Pracownica</th>
@@ -321,8 +321,9 @@ export default function ExpensesView() {
                 </table>
               </div>
               <p class="muted small">
-                Baza = godziny×31,40 (lub stała pensja UoP). Break-even = utarg, przy którym utarg
-                pokrywa koszt (baza + prowizja). Bilans = utarg − koszt (na plusie = salon zarabia).
+                Baza (zlecenie) = etatowe godziny miesiąca (dni robocze×8 × etat) × 31,40 — wrzesień
+                to 176 h dla pełnego etatu; UoP = stała pensja. Break-even = utarg pokrywający koszt
+                (baza + prowizja). Bilans = utarg − koszt (na plusie = salon zarabia na pracownicy).
               </p>
             </section>
           )}

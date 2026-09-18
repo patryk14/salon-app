@@ -238,8 +238,10 @@ def staff_cost(year_month: YM, db: DbDep) -> StaffCostOut:
         monthly_notebook_services,
     )
     from app.models import Employee
+    from app.pnl import standard_monthly_hours
     from app.routers.settlement import _scheme_for
 
+    std_hours = Decimal(standard_monthly_hours(year_month))  # full-time Mon–Fri × 8
     rows: list[StaffCostRow] = []
     total = Decimal("0")
     employees = db.scalars(
@@ -252,14 +254,17 @@ def staff_cost(year_month: YM, db: DbDep) -> StaffCostOut:
             + monthly_cash(db, e.id, year_month)
             + monthly_notebook_services(db, e.id, year_month)
         )
-        hours = monthly_hours(db, e.id, year_month)
-        result = compute_settlement(SettlementInput(booksy_services=revenue, hours=hours), scheme)
+        logged = monthly_hours(db, e.id, year_month)
+        # commission is independent of hours (services + sales only)
+        result = compute_settlement(SettlementInput(booksy_services=revenue), scheme)
         commission = result.services_commission + result.sales_commission
-        if e.pay_type == "uop_plus_extra":  # Klaudia: fixed salary + extra hours
-            base_cost = (e.monthly_base_pln or Decimal("0")) + result.hours_pay
+        if e.pay_type == "uop_plus_extra":  # Klaudia: fixed salary + any extra logged hours
+            hours = logged
+            base_cost = (e.monthly_base_pln or Decimal("0")) + logged * e.hourly_rate
             needs_base = e.monthly_base_pln is None
-        else:  # hourly: base is just logged hours
-            base_cost = result.hours_pay
+        else:  # zlecenie: statutory month hours × FTE (the salary they're paid), or more if logged
+            hours = max(logged, std_hours * e.fte_factor)
+            base_cost = (hours * e.hourly_rate).quantize(Decimal("0.01"))
             needs_base = False
         total_cost = base_cost + commission
         rows.append(

@@ -129,6 +129,9 @@ def test_staff_cost_breakdown(db_client: TestClient) -> None:
     assert {"Ola", "Klaudia"} <= set(rows)
     assert rows["Klaudia"]["needs_base"] is True  # UoP salary not set yet
     assert rows["Ola"]["needs_base"] is False
+    # zlecenie base uses statutory month hours (Sept 2026 = 176 h full-time), not logged
+    assert money(rows["Ola"]["hours"]) == money("176")
+    assert money(rows["Ola"]["base_cost"]) == money("5526.40")  # 176 × 31.40
 
     db_client.patch(f"/employees/{e2}", json={"monthly_base_pln": "4300"})
     k = next(

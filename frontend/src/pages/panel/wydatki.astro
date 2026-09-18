@@ -91,6 +91,10 @@ import PanelNav from '../../components/PanelNav.astro';
       .cell:hover:not(:disabled), .cell:focus { border-color: var(--line2); background: var(--field); }
       .cell.num { text-align: right; font-variant-numeric: tabular-nums; }
       td.amt { width: 9rem; }
+      /* break-even table has many numeric columns — size to content + scroll, not the wide P&L width */
+      table.staff { min-width: 700px; }
+      table.staff td.amt, table.staff th.amt { width: auto; white-space: nowrap; }
+      table.staff td, table.staff th { padding: .45rem .7rem; }
       td.src { width: 4rem; }
       td.del { width: 2rem; text-align: center; }
       .tag { font-size: .66rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); background: var(--line); padding: .12rem .4rem; border-radius: 5px; }
