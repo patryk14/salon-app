@@ -107,6 +107,10 @@ def test_derived_revenue_and_staff_cost(db_client: TestClient) -> None:
     ]
     db_client.post("/settlement/periods", json={"year_month": ym})
     db_client.put(f"/settlement/periods/{ym}/lines/{emp}", json={"hours": "10"})
+    # a DRAFT settlement must NOT drive the P&L — it falls back to the estimate
+    assert db_client.get(f"/pnl/{ym}").json()["staff_cost_source"] == "estimate"
+    # once CLOSED, the settlement payout is authoritative: 10 h × 31.40 = 314
+    assert db_client.post(f"/settlement/periods/{ym}/close").status_code == 200
 
     p = db_client.get(f"/pnl/{ym}").json()
     assert p["revenue_source"] == "computed"

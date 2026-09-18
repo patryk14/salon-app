@@ -80,11 +80,12 @@ def month_money_total(db: Session, year_month: str) -> Decimal:
 
 
 def month_staff_cost(db: Session, year_month: str) -> Decimal | None:
-    """KOSZT PRACOWNICY = Σ the month's settlement payouts (an admin override on
-    a line wins over the computed total). None when no period exists for the
-    month — the caller then shows 0 and flags that settlement isn't entered."""
+    """KOSZT PRACOWNICY from a CLOSED settlement = Σ the month's payouts (an admin
+    override on a line wins). None unless the period is closed — a draft is
+    partial data entry, so the caller falls back to the full-month estimate
+    (statutory hours + commission) rather than showing an incomplete figure."""
     period = db.scalar(select(SettlementPeriod).where(SettlementPeriod.year_month == year_month))
-    if period is None:
+    if period is None or period.status != "closed":
         return None
     return _sum(
         db,
