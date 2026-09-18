@@ -18,7 +18,7 @@ export default function AuthCallback() {
           : g.includes('staff')
             ? '/panel/pracownik'
             : g.includes('client')
-              ? '/moje'
+              ? '/klient'
               : '/panel/pracownik';
         window.location.replace(dest);
       } catch (e) {

@@ -169,7 +169,7 @@ export default function InviteManager() {
       <h3>Klientki</h3>
       <p class="muted small">
         Wyszukaj klientkę (imię/nazwisko/telefon) i wygeneruj kod — wpisze go w „Mój profil"
-        (<code>/moje</code>), żeby widzieć swoje wizyty, pakiety i vouchery.
+        (<code>/klient</code>), żeby widzieć swoje wizyty, pakiety i vouchery.
       </p>
       <form class="row" onSubmit={searchClients}>
         <input

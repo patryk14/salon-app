@@ -3,7 +3,7 @@
 // endpoints); this UI never sends a client id. Before the account is linked it
 // shows the invite-claim box (the owner hands out a code in the salon).
 import { useEffect, useState } from 'preact/hooks';
-import { getUser, groupsOf, login, logout } from '../lib/auth';
+import { getUser, groupsOf, login, logout, signup } from '../lib/auth';
 import { apiFetch } from '../lib/api';
 
 interface Me {
@@ -59,7 +59,7 @@ function thisMonth(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-export default function MojePortal() {
+export default function KlientPortal() {
   const [ready, setReady] = useState(false);
   const [isClient, setIsClient] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
@@ -143,13 +143,18 @@ export default function MojePortal() {
     return (
       <div class="gate">
         <h2>Twój profil</h2>
-        <p class="muted">Zaloguj się, aby zobaczyć swoje wizyty, pakiety i vouchery.</p>
-        <button class="btn primary" onClick={() => login()}>
-          Zaloguj się
-        </button>
+        <p class="muted">Zaloguj się lub załóż konto — zobaczysz swoje wizyty, pakiety i vouchery.</p>
+        <div class="row">
+          <button class="btn primary" onClick={() => login()}>
+            Zaloguj się
+          </button>
+          <button class="btn" onClick={() => signup()}>
+            Zarejestruj się
+          </button>
+        </div>
         <p class="muted small">
-          Pierwszy raz? Kliknij powyżej i wybierz <b>„Zarejestruj się"</b> na stronie logowania —
-          jeśli masz u nas maila, konto połączy się z Twoim profilem automatycznie.
+          Pierwszy raz? Jeśli masz u nas podany email, konto połączy się z Twoim profilem
+          automatycznie. Jeśli nie — dostaniesz kod w salonie.
         </p>
       </div>
     );

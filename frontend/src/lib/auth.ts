@@ -7,6 +7,7 @@
 // The panel only DECIDES what to show; every request is re-authorized by the
 // API. A stolen/expired token gets 401 there, not a false sense of safety here.
 import {
+  OidcClient,
   UserManager,
   WebStorageStateStore,
   type User,
@@ -17,10 +18,12 @@ import {
   PUBLIC_COGNITO_DOMAIN,
 } from 'astro:env/client';
 
-// Built once, in the browser (origin differs local vs prod → redirect_uri too).
-function buildManager(): UserManager {
+// One settings object, shared by the UserManager (login/session) and the
+// OidcClient used to build the signup URL — so both write PKCE state to the same
+// sessionStorage and the single /panel/callback handles either flow.
+function oidcSettings() {
   const origin = window.location.origin;
-  return new UserManager({
+  return {
     authority: PUBLIC_COGNITO_AUTHORITY,
     client_id: PUBLIC_COGNITO_CLIENT_ID,
     redirect_uri: `${origin}/panel/callback`,
@@ -40,17 +43,26 @@ function buildManager(): UserManager {
     userStore: new WebStorageStateStore({ store: window.sessionStorage }),
     stateStore: new WebStorageStateStore({ store: window.sessionStorage }),
     automaticSilentRenew: true,
-  });
+  };
 }
 
 let manager: UserManager | null = null;
 function mgr(): UserManager {
-  if (manager === null) manager = buildManager();
+  if (manager === null) manager = new UserManager(oidcSettings());
   return manager;
 }
 
 export async function login(): Promise<void> {
   await mgr().signinRedirect();
+}
+
+// Send the client straight to Cognito's Hosted UI SIGN-UP page. We build a
+// normal signin request (which stores the PKCE/state), then swap the authorize
+// path for /signup — same params, same callback, so the code exchange still
+// works when Cognito redirects back.
+export async function signup(): Promise<void> {
+  const req = await new OidcClient(oidcSettings()).createSigninRequest({});
+  window.location.assign(req.url.replace('/oauth2/authorize', '/signup'));
 }
 
 export async function logout(): Promise<void> {

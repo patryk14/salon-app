@@ -1,6 +1,6 @@
 ---
 // Client portal (F7) — client-facing (NOT /panel): her profile, visits, packages, vouchers.
-import MojePortal from '../components/MojePortal.tsx';
+import KlientPortal from '../components/KlientPortal.tsx';
 ---
 
 <html lang="pl">
@@ -16,7 +16,7 @@ import MojePortal from '../components/MojePortal.tsx';
         <span class="eyebrow">Charm Skin</span>
         <h1>Mój profil</h1>
       </header>
-      <MojePortal client:only="preact" />
+      <KlientPortal client:only="preact" />
     </main>
 
     <style is:global>
