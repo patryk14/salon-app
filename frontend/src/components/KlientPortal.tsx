@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { getUser, groupsOf, login, logout, signup } from '../lib/auth';
 import { apiFetch } from '../lib/api';
+import AuthImage from './AuthImage';
 
 interface Me {
   linked: boolean;
@@ -44,7 +45,6 @@ interface Photo {
   kind: 'before' | 'after' | null;
   note: string | null;
   taken_on: string | null;
-  url: string | null;
 }
 interface Rebook {
   service: string;
@@ -141,8 +141,8 @@ export default function KlientPortal() {
     if (me?.linked) loadData();
   }, [me?.linked, month]);
 
-  // Progress photos don't depend on the month — load once (each load re-signs
-  // the view URLs). A failure here must not hide the rest of the profile.
+  // Progress photos don't depend on the month — load once. A failure here must
+  // not hide the rest of the profile.
   useEffect(() => {
     if (!me?.linked) return;
     apiFetch<Photo[]>('/klient/me/photos')
@@ -316,9 +316,7 @@ export default function KlientPortal() {
           <div class="pgrid">
             {photos.map((p) => (
               <figure key={p.id}>
-                <a href={p.url ?? '#'} target="_blank" rel="noopener">
-                  <img src={p.url ?? ''} alt={p.note ?? 'zdjęcie postępów'} loading="lazy" />
-                </a>
+                <AuthImage path={`/klient/me/photos/${p.id}/content`} alt={p.note ?? 'zdjęcie postępów'} />
                 <figcaption>
                   {p.kind && <span class={`badge k-${p.kind}`}>{p.kind === 'before' ? 'Przed' : 'Po'}</span>}{' '}
                   <span class="muted small">{p.taken_on ? fmtDate(p.taken_on) : ''}</span>

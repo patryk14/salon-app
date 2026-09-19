@@ -12,10 +12,9 @@ import urllib.request
 from datetime import date, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, select
 
-from app import storage
 from app.auth import UserDep, require_role
 from app.config import get_settings
 from app.derivation import month_bounds
@@ -30,6 +29,7 @@ from app.models import (
     Visit,
     Voucher,
 )
+from app.routers.photos import photo_response
 from app.schemas import (
     ClientMeOut,
     ClientPackageOut,
@@ -230,8 +230,8 @@ def my_rebooking(client: ClientDep, db: DbDep) -> list[RebookingSuggestion]:
 
 @client_portal.get("/me/photos")
 def my_photos(client: ClientDep, db: DbDep) -> list[PhotoOut]:
-    """My progress photos, newest first, each with a short-lived view URL. The
-    uploader's identity (staff audit) is not exposed to the client."""
+    """My progress photos (metadata), newest first. The uploader's identity (staff
+    audit) is not exposed to the client. Bytes: /klient/me/photos/{id}/content."""
     photos = db.scalars(
         select(Photo)
         .where(Photo.client_id == client.id)
@@ -241,9 +241,18 @@ def my_photos(client: ClientDep, db: DbDep) -> list[PhotoOut]:
     for p in photos:
         item = PhotoOut.model_validate(p)
         item.uploaded_by = None
-        item.url = storage.presign_get(p.s3_key)
         out.append(item)
     return out
+
+
+@client_portal.get("/me/photos/{photo_id}/content")
+def my_photo_content(photo_id: int, client: ClientDep, db: DbDep) -> Response:
+    """One of MY photos. Row-scoped: another client's photo id is a plain 404 —
+    indistinguishable from a missing one, so ids can't be probed."""
+    photo = db.get(Photo, photo_id)
+    if photo is None or photo.client_id != client.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="photo not found")
+    return photo_response(photo)
 
 
 @client_portal.get("/me/vouchers")

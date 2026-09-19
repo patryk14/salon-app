@@ -36,3 +36,14 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   }
   return body as T;
 }
+
+// Binary GET with the bearer token (progress photos). Photos are never exposed
+// through a shareable URL — the bytes come only to an authenticated caller.
+export async function apiFetchBlob(path: string): Promise<Blob> {
+  const token = await getAccessToken();
+  const headers = new Headers();
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  const res = await fetch(`${PUBLIC_API_URL}${path}`, { headers });
+  if (!res.ok) throw new ApiError(res.status, res.statusText);
+  return res.blob();
+}

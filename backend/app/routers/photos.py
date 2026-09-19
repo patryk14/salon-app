@@ -3,14 +3,15 @@
 Two-step upload keeps photo bytes off the API entirely: the panel asks for a
 presigned PUT URL, uploads straight to the private bucket, then registers the
 object here. Every photo carries an accountable uploader (Cognito sub) and is
-gated by the client's explicit photo consent — no consent, no upload. Objects
-are only ever read back through short-lived presigned GET URLs.
+gated by the client's explicit photo consent — no consent, no upload. Photos
+are read back ONLY through the authenticated /content endpoint — never via a
+shareable URL (see app.storage).
 """
 
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -45,10 +46,20 @@ def _require_consent(client: Client) -> None:
         )
 
 
-def _to_out(photo: Photo) -> PhotoOut:
-    out = PhotoOut.model_validate(photo)
-    out.url = storage.presign_get(photo.s3_key)
-    return out
+def photo_response(photo: Photo) -> Response:
+    """The photo's bytes for a caller the endpoint has ALREADY authorized.
+    no-store: a face photo must not linger in a shared salon computer's cache."""
+    try:
+        data = storage.read_object(photo.s3_key)
+    except storage.ObjectTooLarge:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="photo too large to serve"
+        ) from None
+    return Response(
+        content=data,
+        media_type=photo.content_type,
+        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.post("/clients/{client_id}/photos/upload-url")
@@ -87,19 +98,28 @@ def register_photo(client_id: int, payload: PhotoCreate, user: UserDep, db: DbDe
     )
     db.add(photo)
     db.flush()
-    return _to_out(photo)
+    return PhotoOut.model_validate(photo)
 
 
 @router.get("/clients/{client_id}/photos")
 def list_photos(client_id: int, db: DbDep) -> list[PhotoOut]:
-    """The client's gallery, newest first — each with a fresh presigned view URL."""
+    """The client's gallery (metadata), newest first. Bytes: /photos/{id}/content."""
     _client_or_404(db, client_id)
     photos = db.scalars(
         select(Photo)
         .where(Photo.client_id == client_id)
         .order_by(Photo.taken_on.desc(), Photo.created_at.desc())
     ).all()
-    return [_to_out(p) for p in photos]
+    return [PhotoOut.model_validate(p) for p in photos]
+
+
+@router.get("/photos/{photo_id}/content")
+def photo_content(photo_id: int, db: DbDep) -> Response:
+    """The image itself — staff/admin only (router gate), token in the header."""
+    photo = db.get(Photo, photo_id)
+    if photo is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="photo not found")
+    return photo_response(photo)
 
 
 @router.delete("/photos/{photo_id}", status_code=status.HTTP_204_NO_CONTENT)

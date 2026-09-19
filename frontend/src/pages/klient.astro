@@ -76,6 +76,8 @@ import KlientPortal from '../components/KlientPortal.tsx';
       .pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .7rem; }
       .pgrid figure { margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
       .pgrid img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: cover; background: var(--field); }
+      .ph { display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 3 / 4; background: var(--field); color: var(--muted); font-size: .8rem; }
+      .ph-err { color: var(--err); }
       .pgrid figcaption { padding: .45rem .6rem; font-size: .85rem; }
       :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
     </style>

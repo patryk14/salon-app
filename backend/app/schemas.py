@@ -122,8 +122,6 @@ class PhotoOut(BaseModel):
     taken_on: date | None
     uploaded_by: str | None
     created_at: datetime
-    # Short-lived presigned GET URL, filled in by the router (not an ORM column).
-    url: str | None = None
 
 
 # ------------------------------------------------------------------ pagination

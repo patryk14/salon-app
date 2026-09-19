@@ -1,12 +1,13 @@
 """Private object storage for client photos (F9).
 
-The bucket is private end to end: the browser never touches it directly with
-credentials, and no object is ever public. Uploads and views both go through
-short-lived presigned URLs the API signs on demand. Locally the same code talks
-to MinIO (S3 API, path-style addressing, endpoint set); in AWS it talks to S3
-(virtual-hosted style, credentials from the Lambda role). Presigning is a local
-signing operation — it does not call S3 — so building an upload/view URL needs
-no network round trip.
+The bucket is private end to end and no object is ever public. READS never
+leave the API: a photo is streamed only to an authenticated, authorized caller
+(see the /content endpoints) — there is deliberately NO presigned GET, because a
+presigned URL is a bearer link: anyone holding it can open the photo without
+logging in until it expires, and URLs leak (history, chats, logs). Only the
+UPLOAD uses a presigned URL: it is write-only for one fresh key and short-lived.
+Locally the same code talks to MinIO (path-style, endpoint set); in AWS to S3
+(virtual-hosted style, credentials from the Lambda role).
 """
 
 import uuid
@@ -17,9 +18,18 @@ from botocore.config import Config
 
 from app.config import get_settings
 
-# How long a presigned upload/view URL stays valid. Short: a link that leaks is
-# useless within the quarter hour, and the panel re-signs on every page load.
-PRESIGN_TTL_SECONDS = 900
+# How long a presigned UPLOAD URL stays valid — just long enough for the browser
+# to PUT the file it has already prepared.
+PRESIGN_TTL_SECONDS = 300
+
+# A photo served through the API must fit Lambda's 6 MB response cap (base64
+# inflates by 4/3). The panel re-encodes uploads to ~0.5 MB, so this is a guard.
+MAX_SERVED_BYTES = 4_000_000
+
+
+class ObjectTooLarge(Exception):
+    """The stored object exceeds what the API can stream back."""
+
 
 # Extension per stored content type — the object key keeps a sane suffix so the
 # bucket is browsable and downloads land with the right name.
@@ -72,13 +82,12 @@ def presign_put(key: str, content_type: str) -> str:
     )
 
 
-def presign_get(key: str) -> str:
-    """Presigned GET URL to view one photo."""
-    return _presign_client().generate_presigned_url(
-        "get_object",
-        Params={"Bucket": get_settings().s3_bucket, "Key": key},
-        ExpiresIn=PRESIGN_TTL_SECONDS,
-    )
+def read_object(key: str) -> bytes:
+    """Fetch one photo's bytes server-side, for an already-authorized caller."""
+    obj = _client().get_object(Bucket=get_settings().s3_bucket, Key=key)
+    if obj["ContentLength"] > MAX_SERVED_BYTES:
+        raise ObjectTooLarge(key)
+    return obj["Body"].read()
 
 
 def delete_objects(keys: list[str]) -> None:

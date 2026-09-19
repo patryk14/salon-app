@@ -23,7 +23,7 @@ def fake_storage(monkeypatch):
 
     monkeypatch.setattr(storage, "new_key", _new_key)
     monkeypatch.setattr(storage, "presign_put", lambda key, ct: f"https://put/{key}")
-    monkeypatch.setattr(storage, "presign_get", lambda key: f"https://get/{key}")
+    monkeypatch.setattr(storage, "read_object", lambda key: f"BYTES:{key}".encode())
     monkeypatch.setattr(storage, "delete_objects", lambda keys: calls["deleted"].extend(keys))
     return calls
 
@@ -73,11 +73,15 @@ def test_upload_and_register_gated_by_consent(db_client: TestClient, fake_storag
     assert body["kind"] == "before" and body["visit_id"] == v["id"]
     assert body["uploaded_by"] == "test-admin"  # audit: who
     assert body["taken_on"] is not None  # defaults to upload day
-    assert body["url"].startswith("https://get/")
+    assert "url" not in body  # no shareable link to a photo exists, by design
 
-    # Gallery lists it with a fresh view URL.
+    # Gallery lists metadata; the bytes come only through the authenticated endpoint.
     photos = db_client.get(f"/clients/{cid}/photos").json()
-    assert len(photos) == 1 and photos[0]["url"].startswith("https://get/")
+    assert len(photos) == 1 and "url" not in photos[0]
+    img = db_client.get(f"/photos/{photos[0]['id']}/content")
+    assert img.status_code == 200 and img.content == f"BYTES:{key}".encode()
+    assert img.headers["content-type"] == "image/jpeg"
+    assert "no-store" in img.headers["cache-control"]
 
 
 def test_register_rejects_foreign_visit(db_client: TestClient, fake_storage) -> None:
@@ -151,8 +155,35 @@ def test_client_sees_own_photos(portal_client: TestClient, fake_storage) -> None
     assert portal_client.post("/invites/claim", json={"code": code}).status_code == 200
     photos = portal_client.get("/klient/me/photos").json()
     assert len(photos) == 1
-    assert photos[0]["url"].startswith("https://get/")
     assert photos[0]["uploaded_by"] is None  # staff audit hidden from the client
+    mine = portal_client.get(f"/klient/me/photos/{photos[0]['id']}/content")
+    assert mine.status_code == 200 and mine.content == b"BYTES:kMe"
+
+
+def test_photo_bytes_are_row_scoped(portal_client: TestClient, fake_storage) -> None:
+    """A photo is readable ONLY by staff/admin and by the client it belongs to."""
+    c = portal_client
+    mine, other = _client(c, "Ola", "Moja"), _client(c, "Ewa", "Cudza")
+    ids = {}
+    for cid, key in ((mine, "kMine"), (other, "kOther")):
+        c.patch(f"/clients/{cid}", json={"photo_consent": True})
+        ids[cid] = c.post(
+            f"/clients/{cid}/photos", json={"s3_key": key, "content_type": "image/jpeg"}
+        ).json()["id"]
+    code = c.post("/invites", json={"client_id": mine}).json()["code"]
+
+    c.as_user("client-sub-1", {"client"})
+    assert c.post("/invites/claim", json={"code": code}).status_code == 200
+    assert c.get(f"/klient/me/photos/{ids[mine]}/content").status_code == 200
+    # someone else's photo id: a plain 404, same as a missing one (no probing)
+    assert c.get(f"/klient/me/photos/{ids[other]}/content").status_code == 404
+    assert c.get("/klient/me/photos/999999/content").status_code == 404
+    # the staff endpoint is closed to clients entirely
+    assert c.get(f"/photos/{ids[mine]}/content").status_code == 403
+
+    # a logged-in but UNLINKED client gets nothing either
+    c.as_user("stranger", {"client"})
+    assert c.get(f"/klient/me/photos/{ids[mine]}/content").status_code == 403
 
 
 def test_pull_customers_skips_tombstoned(monkeypatch) -> None:

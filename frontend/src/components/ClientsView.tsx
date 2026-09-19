@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { getUser, groupsOf, login } from '../lib/auth';
 import { apiFetch } from '../lib/api';
+import AuthImage from './AuthImage';
 
 interface Client {
   id: number;
@@ -31,7 +32,6 @@ interface Photo {
   note: string | null;
   taken_on: string | null;
   created_at: string;
-  url: string | null;
 }
 
 const KIND_LABEL: Record<string, string> = { before: 'Przed', after: 'Po' };
@@ -440,9 +440,7 @@ export default function ClientsView() {
             <div class="grid">
               {photos.map((p) => (
                 <figure key={p.id}>
-                  <a href={p.url ?? '#'} target="_blank" rel="noopener">
-                    <img src={p.url ?? ''} alt={p.note ?? 'zdjęcie postępów'} loading="lazy" />
-                  </a>
+                  <AuthImage path={`/photos/${p.id}/content`} alt={p.note ?? 'zdjęcie postępów'} />
                   <figcaption>
                     <span>
                       {p.kind && <span class={`badge ${p.kind}`}>{KIND_LABEL[p.kind]}</span>}{' '}
