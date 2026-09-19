@@ -490,8 +490,36 @@ class SalonDay(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     day: Mapped[date] = mapped_column(Date, unique=True, nullable=False)
     booksy_cash: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
+    # NOTE: despite the name this is BOOKSY's till (cash + card), derived from its
+    # transactions report by pull_registers — not a reading of the fiscal printer.
     fiscal_register: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
+    # The REAL fiscal printer's daily report ("raport dobowy", gross), typed at day
+    # close. Comparing it with Booksy's till is the only way to see a treatment
+    # that was settled in Booksy but never rung up on the register. NULL = not
+    # entered yet. Never overwritten by a Booksy sync.
+    fiscal_printer_total: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    # A gap that was looked into and is legitimate (the reason goes in `note`).
+    recon_explained: Mapped[bool] = mapped_column(default=False)
     note: Mapped[str | None] = mapped_column(Text)
+
+
+class RegisterTxn(TimestampMixin, Base):
+    """One row of Booksy's till-transactions report, kept (not just summed) so a
+    day's fiscal gap can be traced to the transaction that explains it. Replaced
+    per date range on every sync — Booksy is the source of truth."""
+
+    __tablename__ = "register_txns"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    day: Mapped[date] = mapped_column(Date, nullable=False)
+    doc: Mapped[str | None] = mapped_column(String(80))
+    client_name: Mapped[str | None] = mapped_column(String(200))
+    staff_name: Mapped[str | None] = mapped_column(String(200))  # the cashier, not the performer
+    method: Mapped[str | None] = mapped_column(String(60))
+    inflow: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
+    outflow: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
+
+    __table_args__ = (Index("ix_register_txns_day", "day"),)
 
 
 # ------------------------------------------------------ packages (F+, Day 2)

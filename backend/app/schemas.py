@@ -532,12 +532,20 @@ class SalonDayIn(BaseModel):
     booksy_cash: Decimal = Field(default=Decimal("0"), ge=0, max_digits=10, decimal_places=2)
     fiscal_register: Decimal = Field(default=Decimal("0"), ge=0, max_digits=10, decimal_places=2)
     note: str | None = None
+    # The fiscal PRINTER's daily report (gross). Only changed when sent, so older
+    # clients that don't know the field can't blank it.
+    fiscal_printer_total: Decimal | None = Field(
+        default=None, ge=0, max_digits=10, decimal_places=2
+    )
+    recon_explained: bool | None = None
 
 
 class SalonDayOut(BaseModel):
     day: date
     booksy_cash: Decimal
     fiscal_register: Decimal
+    fiscal_printer_total: Decimal | None = None
+    recon_explained: bool = False
     # Derived from the day's ledger entries (all employees), never stored:
     unregistered_cash: Decimal  # "gotówka nie wbita"
     cash_in_register: Decimal  # unregistered + booksy_cash ("suma gotówki w kasie")
@@ -1059,3 +1067,34 @@ class AftercareOut(BaseModel):
     treatment: str
     aftercare: str
     last_session: date | None
+
+
+# ------------------------------------------------ fiscal reconciliation
+class ReconTxnOut(BaseModel):
+    doc: str | None
+    client: str | None
+    performer: str | None  # from that client's visit that day (best effort)
+    cashier: str | None
+    method: str | None
+    amount: Decimal
+
+
+class DayReconciliationOut(BaseModel):
+    day: date
+    # no_report (fiscal report not typed) | ok | gap | explained
+    status: str
+    booksy_till: Decimal  # what Booksy says was taken (cash + card)
+    fiscal_printer_total: Decimal | None
+    gap: Decimal | None  # booksy_till − printer; >0 = settled in Booksy, not rung up
+    note: str | None
+    synced: bool  # do we hold that day's Booksy transactions at all?
+    candidates: list[list[ReconTxnOut]] = []  # transaction(s) whose amount == gap
+    transactions: list[ReconTxnOut] = []
+
+
+class MonthReconDayOut(BaseModel):
+    day: date
+    status: str
+    booksy_till: Decimal
+    fiscal_printer_total: Decimal | None
+    gap: Decimal | None

@@ -5,6 +5,7 @@
 //   adding the correct one. Service names autocomplete from the Booksy catalog.
 import { useEffect, useState } from 'preact/hooks';
 import { getUser, groupsOf, login } from '../lib/auth';
+import FiscalRecon from './FiscalRecon';
 import { apiFetch } from '../lib/api';
 
 interface Employee {
@@ -31,6 +32,7 @@ interface SalonDay {
   unregistered_cash: string;
   cash_in_register: string;
   note: string | null;
+  fiscal_printer_total: string | null;
 }
 
 function today(): string {
@@ -60,6 +62,8 @@ export default function DailyEntry() {
   const [cash, setCash] = useState<SalonDay | null>(null);
   const [booksyIn, setBooksyIn] = useState('');
   const [fiscalIn, setFiscalIn] = useState('');
+  const [printerIn, setPrinterIn] = useState('');
+  const [reconTick, setReconTick] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -97,6 +101,8 @@ export default function DailyEntry() {
       setCash(sd);
       setBooksyIn(Number(sd.booksy_cash) ? sd.booksy_cash : '');
       setFiscalIn(Number(sd.fiscal_register) ? sd.fiscal_register : '');
+      setPrinterIn(sd.fiscal_printer_total ?? '');
+      setReconTick((n) => n + 1);
       const h: Record<number, string> = {};
       ts.filter((t) => t.work_date === day).forEach((t) => (h[t.employee_id] = t.hours));
       setHours(h);
@@ -176,6 +182,8 @@ export default function DailyEntry() {
         body: JSON.stringify({
           booksy_cash: booksyIn === '' ? '0' : booksyIn,
           fiscal_register: fiscalIn === '' ? '0' : fiscalIn,
+          // empty = "not entered yet" (null), which is different from a 0 zł report
+          fiscal_printer_total: printerIn.trim() === '' ? null : printerIn.replace(',', '.').trim(),
         }),
       });
       await load();
@@ -319,7 +327,7 @@ export default function DailyEntry() {
               <span class="khint">nie wbita + Booksy</span>
             </div>
             <div class="kfield">
-              <span class="klbl">Kasa fiskalna</span>
+              <span class="klbl">Kasa wg Booksy</span>
               <input
                 class="fld kin"
                 type="text"
@@ -328,11 +336,25 @@ export default function DailyEntry() {
                 value={fiscalIn}
                 onInput={(e) => setFiscalIn((e.target as HTMLInputElement).value)}
               />
+              <span class="khint">gotówka + karta, z synchronizacji</span>
+            </div>
+            <div class="kfield">
+              <span class="klbl">Raport dobowy z drukarki</span>
+              <input
+                class="fld kin"
+                type="text"
+                inputMode="decimal"
+                placeholder="—"
+                value={printerIn}
+                onInput={(e) => setPrinterIn((e.target as HTMLInputElement).value)}
+              />
+              <span class="khint">suma brutto z kasy fiskalnej</span>
             </div>
             <button class="btn" onClick={saveCash}>
               Zapisz kasę
             </button>
           </div>
+          <FiscalRecon day={day} refresh={reconTick} isAdmin={admin} onChange={load} />
         </div>
       )}
 

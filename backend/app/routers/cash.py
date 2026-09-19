@@ -14,11 +14,26 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.auth import require_role
+from app.auth import UserDep, require_role
 from app.deps import get_db
 from app.derivation import month_bounds
 from app.models import LedgerEntry, SalonDay
-from app.schemas import MonthlyKasaOut, SalonDayIn, SalonDayOut
+from app.reconciliation import (
+    Txn,
+    day_txns,
+    find_candidates,
+    month_days,
+    status_of,
+    txn_count,
+)
+from app.schemas import (
+    DayReconciliationOut,
+    MonthlyKasaOut,
+    MonthReconDayOut,
+    ReconTxnOut,
+    SalonDayIn,
+    SalonDayOut,
+)
 
 DbDep = Annotated[Session, Depends(get_db)]
 MonthQuery = Annotated[str, Query(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")]
@@ -54,6 +69,69 @@ def salon_month_summary(db: DbDep, month: MonthQuery) -> MonthlyKasaOut:
     )
 
 
+def _gap(row: SalonDay | None) -> Decimal | None:
+    if row is None or row.fiscal_printer_total is None:
+        return None
+    return row.fiscal_register - row.fiscal_printer_total
+
+
+@salon_days.get("/reconciliation")
+def month_reconciliation(db: DbDep, month: MonthQuery) -> list[MonthReconDayOut]:
+    """Every day of the month that has a till: Booksy vs the fiscal printer.
+    Registered BEFORE /{day} (a literal path must not be parsed as a date)."""
+    start, end = month_bounds(month)
+    return [
+        MonthReconDayOut(
+            day=r.day,
+            status=status_of(r.fiscal_printer_total, _gap(r), r.recon_explained),
+            booksy_till=r.fiscal_register,
+            fiscal_printer_total=r.fiscal_printer_total,
+            gap=_gap(r),
+        )
+        for r in month_days(db, start, end)
+    ]
+
+
+def _txn_out(t: Txn) -> ReconTxnOut:
+    return ReconTxnOut(
+        doc=t.doc,
+        client=t.client,
+        performer=t.performer,
+        cashier=t.cashier,
+        method=t.method,
+        amount=t.amount,
+    )
+
+
+@salon_days.get("/{day}/reconciliation")
+def day_reconciliation(day: date, user: UserDep, db: DbDep) -> DayReconciliationOut:
+    """Booksy's till vs the fiscal printer for one day. A positive gap means
+    something was settled in Booksy but never rung up — the candidates are the
+    Booksy transactions whose amount equals that gap, with the performer.
+
+    Everyone at the desk sees THAT the day doesn't add up; only an admin sees the
+    transactions and who performed them — this page is shared by the whole team
+    and a candidate list points at a colleague."""
+    row = db.scalar(select(SalonDay).where(SalonDay.day == day))
+    gap = _gap(row)
+    txns = day_txns(db, day) if "admin" in user.groups else []
+    return DayReconciliationOut(
+        day=day,
+        status=status_of(
+            row.fiscal_printer_total if row else None, gap, row.recon_explained if row else False
+        ),
+        booksy_till=row.fiscal_register if row else Decimal("0"),
+        fiscal_printer_total=row.fiscal_printer_total if row else None,
+        gap=gap,
+        note=row.note if row else None,
+        synced=txn_count(db, day) > 0,
+        candidates=[
+            [_txn_out(t) for t in group] for group in find_candidates(txns, gap or Decimal(0))
+        ],
+        transactions=[_txn_out(t) for t in txns],
+    )
+
+
 def _unregistered(db: Session, day: date) -> Decimal:
     """Sum of the day's ledger cash (all employees) — the 'gotówka nie wbita'."""
     total = db.scalar(
@@ -74,6 +152,8 @@ def _out(day: date, row: SalonDay | None, unregistered: Decimal) -> SalonDayOut:
         unregistered_cash=unregistered,
         cash_in_register=unregistered + booksy,
         note=row.note if row else None,
+        fiscal_printer_total=row.fiscal_printer_total if row else None,
+        recon_explained=row.recon_explained if row else False,
     )
 
 
@@ -94,5 +174,10 @@ def upsert_salon_day(day: date, payload: SalonDayIn, db: DbDep) -> SalonDayOut:
     row.booksy_cash = payload.booksy_cash
     row.fiscal_register = payload.fiscal_register
     row.note = payload.note
+    sent = payload.model_fields_set
+    if "fiscal_printer_total" in sent:
+        row.fiscal_printer_total = payload.fiscal_printer_total
+    if "recon_explained" in sent and payload.recon_explained is not None:
+        row.recon_explained = payload.recon_explained
     db.flush()
     return _out(day, row, _unregistered(db, day))

@@ -220,14 +220,16 @@ def pull_registers(db: Session, date_from: str, date_till: str) -> dict:
     Booksy's cash-registers TRANSACTIONS report into salon_days. That report
     respects the URL date range (unlike the 'summary'), matches the owner's sheet
     to the złoty, and flags package redemptions. Authoritative for those two
-    figures — replaces the range's salon_day rows (the ledger, i.e. 'gotówka nie
-    wbita', lives elsewhere and is untouched)."""
+    figures — it overwrites them for the range, but NEVER the fields a person
+    typed (fiscal printer total, explanation, note). The ledger ('gotówka nie
+    wbita') lives elsewhere and is untouched. The raw transactions are kept too,
+    so a fiscal gap can be traced to the row that explains it."""
     from datetime import date as _date
 
     from openpyxl import load_workbook
     from sqlalchemy import delete
 
-    from app.models import SalonDay
+    from app.models import RegisterTxn, SalonDay
     from app.registers import parse_cash_transactions
 
     creds = load_credentials(db)
@@ -238,9 +240,33 @@ def pull_registers(db: Session, date_from: str, date_till: str) -> dict:
 
     start, end = _date.fromisoformat(date_from), _date.fromisoformat(date_till)
     days = {d: v for d, v in parsed.by_day.items() if start <= d <= end}
-    db.execute(delete(SalonDay).where(SalonDay.day >= start, SalonDay.day <= end))
+    existing = {
+        r.day: r
+        for r in db.scalars(select(SalonDay).where(SalonDay.day >= start, SalonDay.day <= end))
+    }
+    for d, row in existing.items():
+        if d not in days:  # Booksy no longer reports anything for that day
+            row.booksy_cash = row.fiscal_register = 0
     for d, v in days.items():
-        db.add(SalonDay(day=d, booksy_cash=v["booksy_cash"], fiscal_register=v["fiscal_register"]))
+        row = existing.get(d)
+        if row is None:
+            row = SalonDay(day=d)
+            db.add(row)
+        row.booksy_cash, row.fiscal_register = v["booksy_cash"], v["fiscal_register"]
+    db.execute(delete(RegisterTxn).where(RegisterTxn.day >= start, RegisterTxn.day <= end))
+    db.add_all(
+        RegisterTxn(
+            day=t.day,
+            doc=t.doc[:80] or None,
+            client_name=t.client[:200] or None,
+            staff_name=t.staff[:200] or None,
+            method=t.method[:60] or None,
+            inflow=t.inflow,
+            outflow=t.outflow,
+        )
+        for t in parsed.rows
+        if start <= t.day <= end
+    )
     db.flush()
     red = _sync_package_redemptions(db, parsed.package_txs, start, end)
     cash_total = sum((v["booksy_cash"] for v in days.values()), start=0)

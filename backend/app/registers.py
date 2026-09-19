@@ -17,6 +17,17 @@ from decimal import Decimal, InvalidOperation
 _C = {"doc": 3, "date": 2, "client": 5, "staff": 6, "inflow": 7, "outflow": 8, "method": 9}
 
 
+@dataclass(frozen=True)
+class RegisterRow:
+    day: date
+    doc: str
+    client: str
+    staff: str
+    method: str
+    inflow: Decimal
+    outflow: Decimal
+
+
 @dataclass
 class ParsedRegisters:
     # closing/transaction date -> {"booksy_cash": cash, "fiscal_register": cash+card}
@@ -26,6 +37,8 @@ class ParsedRegisters:
     # (redemption_date, client_name, doc_number) per 'Pakiet' row — for crediting
     # package commission to the day's performer.
     package_txs: list[tuple[date, str, str]] = field(default_factory=list)
+    # every transaction row, for tracing a fiscal gap to its cause
+    rows: list[RegisterRow] = field(default_factory=list)
 
 
 def _num(cell: object) -> Decimal:
@@ -68,6 +81,21 @@ def parse_cash_transactions(grid: list[list[object]]) -> ParsedRegisters:
             continue
         method = str(r[_C["method"]]).strip().lower()
         inflow = _num(r[_C["inflow"]])
+
+        def _s(key: str, row=r) -> str:
+            return str(row[_C[key]]).strip() if row[_C[key]] is not None else ""
+
+        out.rows.append(
+            RegisterRow(
+                day=day,
+                doc=_s("doc"),
+                client=_s("client"),
+                staff=_s("staff"),
+                method=_s("method"),
+                inflow=inflow,
+                outflow=_num(r[_C["outflow"]]),
+            )
+        )
         agg = out.by_day.setdefault(
             day, {"booksy_cash": Decimal("0"), "fiscal_register": Decimal("0")}
         )
