@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.db import get_engine
 from app.routers import (
+    care,
     cash,
     catalog,
     client_portal,
@@ -88,4 +89,5 @@ def create_app() -> FastAPI:
     app.include_router(client_portal.client_portal)
     app.include_router(catalog.catalog)
     app.include_router(photos.router)
+    app.include_router(care.router)
     return app

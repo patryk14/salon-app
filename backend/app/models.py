@@ -20,6 +20,7 @@ from sqlalchemy import (
     String,
     Text,
     Time,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -124,8 +125,8 @@ class Photo(TimestampMixin, Base):
     visit_id: Mapped[int | None] = mapped_column(ForeignKey("visits.id", ondelete="SET NULL"))
     # Before/after tag (F9): 'before' | 'after' | NULL (untagged gallery photo).
     kind: Mapped[str | None] = mapped_column(String(10))
-    # Key in the private bucket (MinIO locally, S3 in AWS). The object itself is
-    # served exclusively via presigned URLs — this table never stores public links.
+    # Key in the private bucket (MinIO locally, S3 in AWS). The bytes are served
+    # only through the authenticated /content endpoints — never a shareable link.
     s3_key: Mapped[str] = mapped_column(String(512), unique=True)
     content_type: Mapped[str] = mapped_column(String(100), default="image/jpeg")
     note: Mapped[str | None] = mapped_column(Text)
@@ -706,3 +707,179 @@ class VoucherRedemption(TimestampMixin, Base):
     voucher: Mapped["Voucher"] = relationship(back_populates="redemptions")
 
     __table_args__ = (Index("ix_voucher_redemptions_voucher", "voucher_id"),)
+
+
+# ------------------------------------------------- treatment cards (F10)
+class CardType(TimestampMixin, Base):
+    """A kind of treatment card — the digital twin of one of the salon's paper
+    card templates (endermologia, mezoterapia nano, laser…). Reference data seeded
+    from the owner's documents (app/data/card_types.json); the owner may edit it.
+    `session_variant` picks the columns of the session log, exactly as the paper
+    tables differ: 'parameters' (ZABIEG / PARAMETRY), 'preparation' (UŻYTY
+    PREPARAT) or 'laser' (TYP ZABIEGU / PARAMETRY / UWAGI)."""
+
+    __tablename__ = "card_types"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(40), unique=True)
+    name: Mapped[str] = mapped_column(String(200))
+    session_variant: Mapped[str] = mapped_column(String(20), default="parameters")
+    has_measurements: Mapped[bool] = mapped_column(default=False)
+    # ZALECENIA POZABIEGOWE — generic text handed to every client, one point per
+    # line. Shown to the client in her portal; carries no personal data.
+    aftercare: Mapped[str | None] = mapped_column(Text)
+    active: Mapped[bool] = mapped_column(default=True)
+    display_order: Mapped[int] = mapped_column(default=0)
+
+
+class ClientCard(TimestampMixin, Base):
+    """One client's card for one treatment type — the working record the staff
+    keep session by session. Staff-only: never exposed in the client portal.
+
+    Deliberately holds NO health data (owner decision, 19.09.2026): the signed
+    paper card stays the legal record — contraindications, the health interview
+    and the signatures live there. The app only notes THAT the paper was signed
+    and THAT contraindications were checked, never what they were."""
+
+    __tablename__ = "client_cards"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    client_id: Mapped[int] = mapped_column(
+        ForeignKey("clients.id", ondelete="CASCADE"), nullable=False
+    )
+    card_type_id: Mapped[int] = mapped_column(
+        ForeignKey("card_types.id", ondelete="RESTRICT"), nullable=False
+    )
+    paper_signed_on: Mapped[date | None] = mapped_column(Date)
+    contraindications_checked: Mapped[bool] = mapped_column(default=False)
+    note: Mapped[str | None] = mapped_column(Text)  # organizational, not medical
+    created_by: Mapped[str | None] = mapped_column(String(255))
+
+    card_type: Mapped[CardType] = relationship()
+    sessions: Mapped[list["CardSession"]] = relationship(
+        back_populates="card",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="CardSession.session_date.desc(), CardSession.id.desc()",
+    )
+    measurements: Mapped[list["CardMeasurement"]] = relationship(
+        back_populates="card",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="CardMeasurement.measured_on, CardMeasurement.id",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("client_id", "card_type_id", name="uq_client_card_type"),
+        Index("ix_client_cards_client", "client_id"),
+    )
+
+
+class CardSession(TimestampMixin, Base):
+    """One row of the paper card's session table. performed_by_* replaces the
+    "podpis wykonującego zabieg" column: who did it (Cognito sub + the display
+    name frozen at the time) — created_at is the when."""
+
+    __tablename__ = "card_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    card_id: Mapped[int] = mapped_column(
+        ForeignKey("client_cards.id", ondelete="CASCADE"), nullable=False
+    )
+    visit_id: Mapped[int | None] = mapped_column(ForeignKey("visits.id", ondelete="SET NULL"))
+    session_date: Mapped[date] = mapped_column(Date, nullable=False)
+    treatment: Mapped[str | None] = mapped_column(String(200))  # ZABIEG / TYP ZABIEGU
+    parameters: Mapped[str | None] = mapped_column(Text)  # PARAMETRY
+    preparation: Mapped[str | None] = mapped_column(String(300))  # UŻYTY PREPARAT
+    notes: Mapped[str | None] = mapped_column(Text)  # UWAGI
+    performed_by_sub: Mapped[str | None] = mapped_column(String(255))
+    performed_by_name: Mapped[str | None] = mapped_column(String(200))
+
+    card: Mapped[ClientCard] = relationship(back_populates="sessions")
+
+    __table_args__ = (Index("ix_card_sessions_card", "card_id"),)
+
+
+class CardMeasurement(TimestampMixin, Base):
+    """POMIARY CIAŁA from the endermologia card (taken every ~5 sessions), in cm
+    and kg."""
+
+    __tablename__ = "card_measurements"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    card_id: Mapped[int] = mapped_column(
+        ForeignKey("client_cards.id", ondelete="CASCADE"), nullable=False
+    )
+    measured_on: Mapped[date] = mapped_column(Date, nullable=False)
+    session_no: Mapped[int | None] = mapped_column()
+    arms: Mapped[Decimal | None] = mapped_column(Numeric(5, 1))
+    belly: Mapped[Decimal | None] = mapped_column(Numeric(5, 1))
+    buttocks: Mapped[Decimal | None] = mapped_column(Numeric(5, 1))
+    thighs: Mapped[Decimal | None] = mapped_column(Numeric(5, 1))
+    calves: Mapped[Decimal | None] = mapped_column(Numeric(5, 1))
+    weight: Mapped[Decimal | None] = mapped_column(Numeric(5, 1))
+    notes: Mapped[str | None] = mapped_column(Text)
+
+    card: Mapped[ClientCard] = relationship(back_populates="measurements")
+
+    __table_args__ = (Index("ix_card_measurements_card", "card_id"),)
+
+
+# --------------------------------------------------------- beauty plan (F10)
+class BeautyPlan(TimestampMixin, Base):
+    """The digital Beauty Plan booklet — same sections as the printed one. Written
+    by the salon FOR the client, so (unlike the treatment card) she sees all of
+    it in her portal. One active plan per client; older ones are archived."""
+
+    __tablename__ = "beauty_plans"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    client_id: Mapped[int] = mapped_column(
+        ForeignKey("clients.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(10), default="active")  # active|archived
+    skin_type: Mapped[str | None] = mapped_column(Text)
+    # Plan pielęgnacyjny — morning / evening, four steps each (as printed).
+    am_cleansing: Mapped[str | None] = mapped_column(Text)
+    am_antioxidant: Mapped[str | None] = mapped_column(Text)
+    am_hydration: Mapped[str | None] = mapped_column(Text)
+    am_spf: Mapped[str | None] = mapped_column(Text)
+    pm_cleansing: Mapped[str | None] = mapped_column(Text)
+    pm_therapeutic: Mapped[str | None] = mapped_column(Text)
+    pm_serum: Mapped[str | None] = mapped_column(Text)
+    pm_cream: Mapped[str | None] = mapped_column(Text)
+    extra_care: Mapped[str | None] = mapped_column(Text)  # Pielęgnacja dodatkowa
+    lifestyle: Mapped[str | None] = mapped_column(Text)  # Suplementacja, styl życia
+    recommendations: Mapped[str | None] = mapped_column(Text)  # Dodatkowe zalecenia
+    created_by: Mapped[str | None] = mapped_column(String(255))
+
+    steps: Mapped[list["BeautyPlanStep"]] = relationship(
+        back_populates="plan",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="BeautyPlanStep.position, BeautyPlanStep.id",
+    )
+
+    __table_args__ = (Index("ix_beauty_plans_client", "client_id"),)
+
+
+class BeautyPlanStep(TimestampMixin, Base):
+    """One line of "Plan zabiegowy": a treatment, how many sessions are planned
+    and how many are done — the progress the client watches."""
+
+    __tablename__ = "beauty_plan_steps"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    plan_id: Mapped[int] = mapped_column(
+        ForeignKey("beauty_plans.id", ondelete="CASCADE"), nullable=False
+    )
+    position: Mapped[int] = mapped_column(default=0)
+    treatment: Mapped[str] = mapped_column(String(200))
+    sessions_planned: Mapped[int] = mapped_column(default=1)
+    sessions_done: Mapped[int] = mapped_column(default=0)
+    interval_note: Mapped[str | None] = mapped_column(String(100))  # e.g. "co 2 tygodnie"
+    note: Mapped[str | None] = mapped_column(Text)
+
+    plan: Mapped[BeautyPlan] = relationship(back_populates="steps")
+
+    __table_args__ = (Index("ix_beauty_plan_steps_plan", "plan_id"),)

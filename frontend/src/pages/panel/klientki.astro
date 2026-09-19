@@ -92,6 +92,38 @@ import PanelNav from '../../components/PanelNav.astro';
       .edit-actions { display: flex; gap: .4rem; }
       .ph { display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 3 / 4; background: var(--field); color: var(--muted); font-size: .8rem; }
       .ph-err { color: var(--err); }
+      .tabs { display: flex; gap: .3rem; border-bottom: 1px solid var(--line); margin: .4rem 0 1rem; flex-wrap: wrap; }
+      .tab { font: inherit; font-size: .9rem; background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted); padding: .5rem .8rem; cursor: pointer; }
+      .tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+      .bar { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin: .6rem 0 1rem; }
+      .inline { display: inline-flex; gap: .4rem; align-items: center; }
+      .chip { font: inherit; font-size: .85rem; border: 1px solid var(--line2); background: var(--card); color: var(--ink); border-radius: 999px; padding: .3rem .8rem; cursor: pointer; }
+      .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+      .chip.active .muted { color: #fff; opacity: .8; }
+      .paper { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; }
+      .paper .fld { flex: 0 0 auto; }
+      .badge.warn { background: var(--draft-soft); color: var(--draft); }
+      .scroll { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin-bottom: .8rem; }
+      table.sessions { border-collapse: collapse; width: 100%; min-width: 640px; }
+      table.sessions th, table.sessions td { padding: .45rem .6rem; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+      table.sessions tr:last-child td { border-bottom: 0; }
+      table.sessions th { font-size: .68rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+      table.sessions td.amt, table.sessions th.amt { text-align: right; font-variant-numeric: tabular-nums; }
+      table.sessions tr.add td { background: var(--field); }
+      table.sessions tr.done td { color: var(--muted); }
+      table.sessions textarea, table.sessions input:not([type=date]):not(.num), table.sessions select { width: 100%; }
+      table.sessions tr.add td > * + * { margin-top: .3rem; }
+      textarea { font: inherit; border: 1px solid var(--line2); background: var(--field); color: var(--ink); border-radius: 8px; padding: .4rem .55rem; width: 100%; resize: vertical; }
+      input.num { width: 4.5rem; text-align: right; }
+      td.nowrap { white-space: nowrap; }
+      td.pre { white-space: pre-wrap; }
+      details.card summary { cursor: pointer; font-weight: 600; }
+      .after { margin: .6rem 0 0; padding-left: 1.2rem; font-size: .88rem; }
+      .after li + li { margin-top: .3rem; }
+      .routine { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+      .routine .card { margin: 0; }
+      .rhead { font-weight: 600; text-align: center; padding: .3rem; }
+      @media (max-width: 560px) { .routine { grid-template-columns: 1fr; } }
       .btn.sm { padding: .3rem .7rem; font-size: .82rem; }
       .merge { margin-top: 2rem; }
       .merge input { width: 100%; max-width: 24rem; margin-top: .5rem; }

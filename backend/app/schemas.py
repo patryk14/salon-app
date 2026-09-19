@@ -887,3 +887,175 @@ class DueRebook(BaseModel):
     service: str
     last_visit: date
     suggested_next: date
+
+
+# ------------------------------------------------- treatment cards (F10)
+SessionVariant = Literal["parameters", "preparation", "laser"]
+
+
+class CardTypeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    code: str
+    name: str
+    session_variant: SessionVariant
+    has_measurements: bool
+    aftercare: str | None
+    active: bool
+
+
+class CardTypeCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    session_variant: SessionVariant = "parameters"
+    has_measurements: bool = False
+    aftercare: str | None = None
+
+
+class CardTypeUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    session_variant: SessionVariant | None = None
+    has_measurements: bool | None = None
+    aftercare: str | None = None
+    active: bool | None = None
+
+
+class CardSessionIn(BaseModel):
+    session_date: date
+    visit_id: int | None = None
+    treatment: str | None = Field(default=None, max_length=200)
+    parameters: str | None = None
+    preparation: str | None = Field(default=None, max_length=300)
+    notes: str | None = None
+
+
+class CardSessionUpdate(BaseModel):
+    session_date: date | None = None
+    treatment: str | None = Field(default=None, max_length=200)
+    parameters: str | None = None
+    preparation: str | None = Field(default=None, max_length=300)
+    notes: str | None = None
+
+
+class CardSessionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    visit_id: int | None
+    session_date: date
+    treatment: str | None
+    parameters: str | None
+    preparation: str | None
+    notes: str | None
+    performed_by_sub: str | None
+    performed_by_name: str | None
+    created_at: datetime
+
+
+_Cm = Field(default=None, ge=0, le=999, max_digits=5, decimal_places=1)
+
+
+class CardMeasurementIn(BaseModel):
+    measured_on: date
+    session_no: int | None = Field(default=None, ge=0, le=999)
+    arms: Decimal | None = _Cm
+    belly: Decimal | None = _Cm
+    buttocks: Decimal | None = _Cm
+    thighs: Decimal | None = _Cm
+    calves: Decimal | None = _Cm
+    weight: Decimal | None = _Cm
+    notes: str | None = None
+
+
+class CardMeasurementOut(CardMeasurementIn):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+
+
+class ClientCardCreate(BaseModel):
+    card_type_id: int
+    paper_signed_on: date | None = None
+    contraindications_checked: bool = False
+    note: str | None = None
+
+
+class ClientCardUpdate(BaseModel):
+    paper_signed_on: date | None = None
+    contraindications_checked: bool | None = None
+    note: str | None = None
+
+
+class ClientCardOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    client_id: int
+    card_type: CardTypeOut
+    paper_signed_on: date | None
+    contraindications_checked: bool
+    note: str | None
+    sessions: list[CardSessionOut] = []
+    measurements: list[CardMeasurementOut] = []
+
+
+# --------------------------------------------------------- beauty plan (F10)
+class BeautyPlanIn(BaseModel):
+    """The booklet's text sections. PUT semantics: what is sent is what is kept."""
+
+    skin_type: str | None = None
+    am_cleansing: str | None = None
+    am_antioxidant: str | None = None
+    am_hydration: str | None = None
+    am_spf: str | None = None
+    pm_cleansing: str | None = None
+    pm_therapeutic: str | None = None
+    pm_serum: str | None = None
+    pm_cream: str | None = None
+    extra_care: str | None = None
+    lifestyle: str | None = None
+    recommendations: str | None = None
+
+
+class BeautyPlanStepIn(BaseModel):
+    treatment: str = Field(min_length=1, max_length=200)
+    sessions_planned: int = Field(default=1, ge=1, le=99)
+    sessions_done: int = Field(default=0, ge=0, le=99)
+    interval_note: str | None = Field(default=None, max_length=100)
+    note: str | None = None
+
+
+class BeautyPlanStepUpdate(BaseModel):
+    treatment: str | None = Field(default=None, min_length=1, max_length=200)
+    sessions_planned: int | None = Field(default=None, ge=1, le=99)
+    sessions_done: int | None = Field(default=None, ge=0, le=99)
+    interval_note: str | None = Field(default=None, max_length=100)
+    note: str | None = None
+
+
+class BeautyPlanStepOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    treatment: str
+    sessions_planned: int
+    sessions_done: int
+    interval_note: str | None
+    note: str | None
+
+
+class BeautyPlanOut(BeautyPlanIn):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    status: str
+    updated_at: datetime
+    steps: list[BeautyPlanStepOut] = []
+
+
+class AftercareOut(BaseModel):
+    """Post-treatment recommendations for a treatment the client has a card for."""
+
+    treatment: str
+    aftercare: str
+    last_session: date | None

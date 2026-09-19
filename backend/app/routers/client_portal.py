@@ -20,7 +20,9 @@ from app.config import get_settings
 from app.derivation import month_bounds
 from app.identity import ClientDep, DbDep, account_for
 from app.models import (
+    CardSession,
     Client,
+    ClientCard,
     Package,
     PackageRedemption,
     Photo,
@@ -29,8 +31,11 @@ from app.models import (
     Visit,
     Voucher,
 )
+from app.routers.care import active_plan
 from app.routers.photos import photo_response
 from app.schemas import (
+    AftercareOut,
+    BeautyPlanOut,
     ClientMeOut,
     ClientPackageOut,
     ClientVoucherOut,
@@ -253,6 +258,35 @@ def my_photo_content(photo_id: int, client: ClientDep, db: DbDep) -> Response:
     if photo is None or photo.client_id != client.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="photo not found")
     return photo_response(photo)
+
+
+@client_portal.get("/me/beauty-plan")
+def my_beauty_plan(client: ClientDep, db: DbDep) -> BeautyPlanOut | None:
+    """My active Beauty Plan — the salon writes it for me, so I see all of it."""
+    plan = active_plan(db, client.id)
+    return BeautyPlanOut.model_validate(plan) if plan else None
+
+
+@client_portal.get("/me/aftercare")
+def my_aftercare(client: ClientDep, db: DbDep) -> list[AftercareOut]:
+    """Post-treatment recommendations for the treatments I have a card for —
+    the generic handout text plus my last session date. Nothing else from the
+    treatment card is exposed: it is the salon's internal working record."""
+    out: list[AftercareOut] = []
+    cards = db.scalars(select(ClientCard).where(ClientCard.client_id == client.id)).all()
+    for card in cards:
+        if not card.card_type.aftercare:
+            continue
+        last = db.scalar(
+            select(func.max(CardSession.session_date)).where(CardSession.card_id == card.id)
+        )
+        out.append(
+            AftercareOut(
+                treatment=card.card_type.name, aftercare=card.card_type.aftercare, last_session=last
+            )
+        )
+    out.sort(key=lambda a: a.last_session or date.min, reverse=True)
+    return out
 
 
 @client_portal.get("/me/vouchers")

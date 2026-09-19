@@ -46,6 +46,35 @@ interface Photo {
   note: string | null;
   taken_on: string | null;
 }
+interface PlanStep {
+  id: number;
+  treatment: string;
+  sessions_planned: number;
+  sessions_done: number;
+  interval_note: string | null;
+}
+interface BeautyPlan {
+  updated_at: string;
+  steps: PlanStep[];
+  [section: string]: unknown;
+}
+interface Aftercare {
+  treatment: string;
+  aftercare: string;
+  last_session: string | null;
+}
+// The printed booklet's layout: morning / evening, then the free-text sections.
+const PLAN_ROUTINE: [string, string, string, string][] = [
+  ['am_cleansing', 'Oczyszczanie', 'pm_cleansing', 'Oczyszczanie'],
+  ['am_antioxidant', 'Antyoksydacja', 'pm_therapeutic', 'Działanie terapeutyczne'],
+  ['am_hydration', 'Nawilżenie', 'pm_serum', 'Serum'],
+  ['am_spf', 'Krem z filtrem SPF', 'pm_cream', 'Krem pielęgnacyjny'],
+];
+const PLAN_SECTIONS: [string, string][] = [
+  ['extra_care', 'Pielęgnacja dodatkowa'],
+  ['lifestyle', 'Suplementacja, styl życia'],
+  ['recommendations', 'Dodatkowe zalecenia'],
+];
 interface Rebook {
   service: string;
   last_visit: string;
@@ -84,6 +113,8 @@ export default function KlientPortal() {
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
   const [rebook, setRebook] = useState<Rebook[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
+  const [plan, setPlan] = useState<BeautyPlan | null>(null);
+  const [aftercare, setAftercare] = useState<Aftercare[]>([]);
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -148,6 +179,12 @@ export default function KlientPortal() {
     apiFetch<Photo[]>('/klient/me/photos')
       .then(setPhotos)
       .catch(() => setPhotos([]));
+    apiFetch<BeautyPlan | null>('/klient/me/beauty-plan')
+      .then(setPlan)
+      .catch(() => setPlan(null));
+    apiFetch<Aftercare[]>('/klient/me/aftercare')
+      .then(setAftercare)
+      .catch(() => setAftercare([]));
   }, [me?.linked]);
 
   async function claim() {
@@ -306,6 +343,89 @@ export default function KlientPortal() {
           </div>
         )}
       </section>
+
+      {plan && (
+        <section>
+          <div class="shead">
+            <h3>Mój Beauty Plan</h3>
+            <span class="muted small">aktualizacja {fmtDate(plan.updated_at)}</span>
+          </div>
+          {typeof plan.skin_type === 'string' && plan.skin_type && (
+            <p>
+              <b>Typ skóry:</b> {plan.skin_type}
+            </p>
+          )}
+          {PLAN_ROUTINE.some(([am, , pm]) => plan[am] || plan[pm]) && (
+            <div class="routine">
+              <div class="rhead">Rano</div>
+              <div class="rhead">Wieczorem</div>
+              {PLAN_ROUTINE.map(([am, amLabel, pm, pmLabel]) => [
+                <div class="rcell" key={am}>
+                  <span class="lbl">{amLabel}</span>
+                  <div class="pre">{(plan[am] as string | null) || '—'}</div>
+                </div>,
+                <div class="rcell" key={pm}>
+                  <span class="lbl">{pmLabel}</span>
+                  <div class="pre">{(plan[pm] as string | null) || '—'}</div>
+                </div>,
+              ])}
+            </div>
+          )}
+          {PLAN_SECTIONS.map(([key, label]) =>
+            plan[key] ? (
+              <div class="psec" key={key}>
+                <span class="lbl">{label}</span>
+                <div class="pre">{plan[key] as string}</div>
+              </div>
+            ) : null,
+          )}
+          {plan.steps.length > 0 && (
+            <div class="psec">
+              <span class="lbl">Plan zabiegowy</span>
+              {plan.steps.map((s) => {
+                const pct = Math.min(100, Math.round((s.sessions_done / s.sessions_planned) * 100));
+                return (
+                  <div class="pstep" key={s.id}>
+                    <div class="pstep-head">
+                      <span>
+                        {s.treatment}
+                        {s.interval_note && <span class="muted small"> · {s.interval_note}</span>}
+                      </span>
+                      <b>
+                        {s.sessions_done} / {s.sessions_planned}
+                      </b>
+                    </div>
+                    <div class="pbar">
+                      <div class="pbar-fill" style={`width:${pct}%`} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
+
+      {aftercare.length > 0 && (
+        <section>
+          <div class="shead">
+            <h3>Zalecenia po zabiegu</h3>
+          </div>
+          {aftercare.map((a) => (
+            <details class="after" key={a.treatment}>
+              <summary>
+                {a.treatment}
+                {a.last_session && <span class="muted small"> · ostatni zabieg {fmtDate(a.last_session)}</span>}
+              </summary>
+              <ul>
+                {a.aftercare.split('\n').map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </details>
+          ))}
+        </section>
+      )}
 
       {photos.length > 0 && (
         <section>

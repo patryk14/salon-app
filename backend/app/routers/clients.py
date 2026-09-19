@@ -16,7 +16,11 @@ from app.auth import require_role
 from app.deps import get_db
 from app.derivation import month_bounds
 from app.models import (
+    BeautyPlan,
+    CardMeasurement,
+    CardSession,
     Client,
+    ClientCard,
     ClientTombstone,
     Invite,
     Package,
@@ -164,7 +168,36 @@ def merge_client(client_id: int, target_id: int, db: DbDep) -> ClientOut:
             detail="both profiles have a portal login — unlink one before merging",
         )
 
-    for model in (Visit, Photo, Package, Invite, UserAccount):
+    # Treatment cards are unique per (client, type): where both profiles hold the
+    # same type, the duplicate's sessions/measurements fold into the survivor's
+    # card; the rest of her cards simply move over.
+    target_cards = {
+        c.card_type_id: c.id
+        for c in db.scalars(select(ClientCard).where(ClientCard.client_id == target.id))
+    }
+    for card in db.scalars(select(ClientCard).where(ClientCard.client_id == source.id)).all():
+        keep = target_cards.get(card.card_type_id)
+        if keep is None:
+            card.client_id = target.id
+            continue
+        for child in (CardSession, CardMeasurement):
+            db.execute(update(child).where(child.card_id == card.id).values(card_id=keep))
+        db.flush()
+        db.expire(card)
+        db.delete(card)
+    # At most one ACTIVE beauty plan per client: the survivor's stays active.
+    if db.scalar(
+        select(BeautyPlan.id).where(
+            BeautyPlan.client_id == target.id, BeautyPlan.status == "active"
+        )
+    ):
+        db.execute(
+            update(BeautyPlan)
+            .where(BeautyPlan.client_id == source.id, BeautyPlan.status == "active")
+            .values(status="archived")
+        )
+
+    for model in (Visit, Photo, Package, Invite, UserAccount, BeautyPlan):
         db.execute(update(model).where(model.client_id == source.id).values(client_id=target.id))
 
     # Fill the survivor's gaps. The Booksy id is unique, so it must leave the

@@ -6,6 +6,8 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { getUser, groupsOf, login } from '../lib/auth';
 import { apiFetch } from '../lib/api';
 import AuthImage from './AuthImage';
+import BeautyPlanEditor from './BeautyPlanEditor';
+import TreatmentCards from './TreatmentCards';
 
 interface Client {
   id: number;
@@ -65,6 +67,9 @@ export default function ClientsView() {
   const [visits, setVisits] = useState<Visit[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState<'photos' | 'cards' | 'plan'>('photos');
+  const [mySub, setMySub] = useState<string | null>(null);
+  const [services, setServices] = useState<string[]>([]);
   // upload form
   const fileRef = useRef<HTMLInputElement>(null);
   const [kind, setKind] = useState('');
@@ -85,6 +90,10 @@ export default function ClientsView() {
         const g = groupsOf(user);
         setIsStaff(g.includes('staff') || g.includes('admin'));
         setIsAdmin(g.includes('admin'));
+        setMySub(user.profile.sub);
+        // treatment-name suggestions for the beauty plan (best effort)
+        if (g.includes('staff') || g.includes('admin'))
+          apiFetch<string[]>('/services').then(setServices).catch(() => {});
       }
       setReady(true);
     })();
@@ -385,76 +394,99 @@ export default function ClientsView() {
               </div>
             )}
 
-            <div class="card">
-              <label class="chk strong">
-                <input
-                  type="checkbox"
-                  checked={client.photo_consent}
-                  onChange={(e) => setConsent((e.target as HTMLInputElement).checked)}
-                />
-                Zgoda na zdjęcia postępów
-              </label>
-              <p class="muted small">
-                {client.photo_consent
-                  ? `Udzielona ${client.photo_consent_at?.slice(0, 10) ?? ''}. Zdjęcia są prywatne — widzi je tylko salon i sama klientka.`
-                  : 'Bez zgody klientki nie można dodawać zdjęć. Zaznacz po jej uzyskaniu (najlepiej pisemnie).'}
-              </p>
-            </div>
-
-            {client.photo_consent && (
-              <div class="card upload">
-                <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" />
-                <select value={kind} onChange={(e) => setKind((e.target as HTMLSelectElement).value)}>
-                  <option value="">bez oznaczenia</option>
-                  <option value="before">Przed</option>
-                  <option value="after">Po</option>
-                </select>
-                <select value={visitId} onChange={(e) => setVisitId((e.target as HTMLSelectElement).value)}>
-                  <option value="">bez wizyty</option>
-                  {visits.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.starts_at.slice(0, 10)} · {v.service_name}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="date"
-                  title="Data wykonania (domyślnie dziś)"
-                  value={takenOn}
-                  onInput={(e) => setTakenOn((e.target as HTMLInputElement).value)}
-                />
-                <input
-                  class="grow"
-                  placeholder="notatka (opcjonalnie)"
-                  value={note}
-                  onInput={(e) => setNote((e.target as HTMLInputElement).value)}
-                />
-                <button class="btn primary" disabled={busy} onClick={upload}>
-                  {busy ? 'Wysyłanie…' : 'Dodaj zdjęcie'}
+            <div class="tabs">
+              {(
+                [
+                  ['photos', `Zdjęcia (${photos.length})`],
+                  ['cards', 'Karty zabiegowe'],
+                  ['plan', 'Beauty plan'],
+                ] as const
+              ).map(([key, label]) => (
+                <button key={key} class={`tab${tab === key ? ' active' : ''}`} onClick={() => setTab(key)}>
+                  {label}
                 </button>
-              </div>
-            )}
-
-            <h2 class="section">Galeria ({photos.length})</h2>
-            {photos.length === 0 && <p class="muted">Brak zdjęć.</p>}
-            <div class="grid">
-              {photos.map((p) => (
-                <figure key={p.id}>
-                  <AuthImage path={`/photos/${p.id}/content`} alt={p.note ?? 'zdjęcie postępów'} />
-                  <figcaption>
-                    <span>
-                      {p.kind && <span class={`badge ${p.kind}`}>{KIND_LABEL[p.kind]}</span>}{' '}
-                      {p.taken_on}
-                    </span>
-                    {visitLabel(p.visit_id) && <span class="muted small">{visitLabel(p.visit_id)}</span>}
-                    {p.note && <span class="small">{p.note}</span>}
-                    <button class="link danger" onClick={() => removePhoto(p)}>
-                      usuń
-                    </button>
-                  </figcaption>
-                </figure>
               ))}
             </div>
+
+            {tab === 'cards' && (
+              <TreatmentCards clientId={client.id} visits={visits} isAdmin={isAdmin} mySub={mySub} />
+            )}
+            {tab === 'plan' && <BeautyPlanEditor clientId={client.id} services={services} />}
+
+            {tab === 'photos' && (
+              <div>
+              <div class="card">
+                <label class="chk strong">
+                  <input
+                    type="checkbox"
+                    checked={client.photo_consent}
+                    onChange={(e) => setConsent((e.target as HTMLInputElement).checked)}
+                  />
+                  Zgoda na zdjęcia postępów
+                </label>
+                <p class="muted small">
+                  {client.photo_consent
+                    ? `Udzielona ${client.photo_consent_at?.slice(0, 10) ?? ''}. Zdjęcia są prywatne — widzi je tylko salon i sama klientka.`
+                    : 'Bez zgody klientki nie można dodawać zdjęć. Zaznacz po jej uzyskaniu (najlepiej pisemnie).'}
+                </p>
+              </div>
+
+              {client.photo_consent && (
+                <div class="card upload">
+                  <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" />
+                  <select value={kind} onChange={(e) => setKind((e.target as HTMLSelectElement).value)}>
+                    <option value="">bez oznaczenia</option>
+                    <option value="before">Przed</option>
+                    <option value="after">Po</option>
+                  </select>
+                  <select value={visitId} onChange={(e) => setVisitId((e.target as HTMLSelectElement).value)}>
+                    <option value="">bez wizyty</option>
+                    {visits.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.starts_at.slice(0, 10)} · {v.service_name}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="date"
+                    title="Data wykonania (domyślnie dziś)"
+                    value={takenOn}
+                    onInput={(e) => setTakenOn((e.target as HTMLInputElement).value)}
+                  />
+                  <input
+                    class="grow"
+                    placeholder="notatka (opcjonalnie)"
+                    value={note}
+                    onInput={(e) => setNote((e.target as HTMLInputElement).value)}
+                  />
+                  <button class="btn primary" disabled={busy} onClick={upload}>
+                    {busy ? 'Wysyłanie…' : 'Dodaj zdjęcie'}
+                  </button>
+                </div>
+              )}
+
+              <h2 class="section">Galeria ({photos.length})</h2>
+              {photos.length === 0 && <p class="muted">Brak zdjęć.</p>}
+              <div class="grid">
+                {photos.map((p) => (
+                  <figure key={p.id}>
+                    <AuthImage path={`/photos/${p.id}/content`} alt={p.note ?? 'zdjęcie postępów'} />
+                    <figcaption>
+                      <span>
+                        {p.kind && <span class={`badge ${p.kind}`}>{KIND_LABEL[p.kind]}</span>}{' '}
+                        {p.taken_on}
+                      </span>
+                      {visitLabel(p.visit_id) && <span class="muted small">{visitLabel(p.visit_id)}</span>}
+                      {p.note && <span class="small">{p.note}</span>}
+                      <button class="link danger" onClick={() => removePhoto(p)}>
+                        usuń
+                      </button>
+                    </figcaption>
+                  </figure>
+                ))}
+              </div>
+              </div>
+            )}
 
             {isAdmin && (
               <div class="card merge">

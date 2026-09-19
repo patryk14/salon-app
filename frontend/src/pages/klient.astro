@@ -73,6 +73,21 @@ import KlientPortal from '../components/KlientPortal.tsx';
       .badge.s-expired, .badge.s-cancelled, .badge.s-no_show { background: var(--err-soft); color: var(--err); }
       .badge.k-after { background: var(--pay-soft); color: var(--pay); }
       .badge.k-before { background: var(--draft-soft); color: var(--draft); }
+      .lbl { display: block; font-size: .68rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-bottom: .15rem; }
+      .pre { white-space: pre-wrap; }
+      .routine { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin: .6rem 0; }
+      .rhead { font-weight: 600; text-align: center; }
+      .rcell, .psec { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: .6rem .8rem; }
+      .psec { margin-top: .5rem; }
+      @media (max-width: 520px) { .routine { grid-template-columns: 1fr; } }
+      .pstep { margin-top: .55rem; }
+      .pstep-head { display: flex; justify-content: space-between; gap: 1rem; align-items: baseline; }
+      .pbar { height: 6px; border-radius: 999px; background: var(--line); margin-top: .25rem; overflow: hidden; }
+      .pbar-fill { height: 100%; background: var(--pay); border-radius: 999px; }
+      details.after { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: .6rem .8rem; margin-top: .5rem; }
+      details.after summary { cursor: pointer; font-weight: 600; }
+      details.after ul { margin: .6rem 0 0; padding-left: 1.2rem; font-size: .9rem; }
+      details.after li + li { margin-top: .3rem; }
       .pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .7rem; }
       .pgrid figure { margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
       .pgrid img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: cover; background: var(--field); }
