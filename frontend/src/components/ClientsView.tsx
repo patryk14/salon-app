@@ -286,16 +286,37 @@ export default function ClientsView() {
     if (!client) return;
     const name = `${client.first_name} ${client.last_name}`;
     const typed = prompt(
-      `RODO — trwałe usunięcie WSZYSTKICH danych klientki (profil, wizyty, zdjęcia).\n` +
+      `RODO — trwałe usunięcie danych klientki: profil, zdjęcia, karty zabiegowe, beauty plan, konto w portalu.\n` +
+        `Jej wizyty zostają jako ANONIMOWE zapisy salonu (data, usługa, kwota, wykonawczyni) — prowizje się nie zmienią.\n` +
         `Nie zostanie też ponownie zaimportowana z Booksy. Otwarte zamówienia ze sklepu zostaną anulowane.\n` +
         `WAŻNE: usuń ją także w Booksy — to osobny system i stamtąd jej dane nie znikną same.\n\nAby potwierdzić, wpisz: ${name}`,
     );
     if (typed?.trim() !== name) return;
     try {
-      await apiFetch(`/clients/${client.id}/erase`, { method: 'POST' });
+      const done = await apiFetch<{
+        visits_anonymised: number;
+        name_suppressed: boolean;
+        cognito_accounts: string[];
+      }>(`/clients/${client.id}/erase`, { method: 'POST' });
       setResults((rs) => rs.filter((r) => r.id !== client.id));
       setClient(null);
-      setError(`Dane klientki „${name}" zostały trwale usunięte.`);
+      const notes = [
+        `Dane klientki „${name}" zostały trwale usunięte (zanonimizowane wizyty: ${done.visits_anonymised}).`,
+        'Usuń ją także w Booksy — to osobny system.',
+      ];
+      if (done.cognito_accounts.length > 0)
+        notes.push(
+          `Miała konto w portalu — usuń je z Cognito: ` +
+            done.cognito_accounts
+              .map((sub) => `aws cognito-idp admin-delete-user --user-pool-id eu-central-1_uWBM7LTRv --username ${sub}`)
+              .join(' ; '),
+        );
+      if (!done.name_suppressed)
+        notes.push(
+          'W bazie jest inna klientka o tym samym imieniu i nazwisku, więc vouchery i niezaimportowana dotąd ' +
+            'historia nie mogły zostać rozróżnione po nazwisku — sprawdź je ręcznie.',
+        );
+      setError(notes.join(' '));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -527,8 +548,8 @@ export default function ClientsView() {
                 <div>
                   <b>RODO — prawo do bycia zapomnianą</b>
                   <p class="muted small">
-                    Trwale usuwa profil, wizyty i wszystkie zdjęcia (także z magazynu) oraz blokuje
-                    ponowny import tej osoby z Booksy.
+                    Trwale usuwa profil, zdjęcia (także z magazynu), karty i konto w portalu; wizyty zostają
+                    jako anonimowe zapisy salonu. Ponowny import z Booksy nie odtworzy tej osoby.
                   </p>
                 </div>
                 <button class="btn danger" onClick={erase}>

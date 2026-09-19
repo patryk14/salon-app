@@ -64,6 +64,10 @@ class Client(TimestampMixin, Base):
     # to store someone's face. photo_consent_at records when it was granted.
     photo_consent: Mapped[bool] = mapped_column(default=False)
     photo_consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The ONE shared placeholder ("Klientka usunięta (RODO)") that the anonymised
+    # visits of erased clients hang off — see app/rodo.py. Hidden from the client
+    # list and immune to edit / erase / merge / invites.
+    is_anonymous: Mapped[bool] = mapped_column(default=False)
 
     visits: Mapped[list["Visit"]] = relationship(
         back_populates="client", cascade="all, delete-orphan", passive_deletes=True
@@ -84,6 +88,23 @@ class ClientTombstone(TimestampMixin, Base):
 
     booksy_customer_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     reason: Mapped[str] = mapped_column(String(40), default="rodo_erasure")
+
+
+class ErasedName(TimestampMixin, Base):
+    """Suppression list for RODO erasures: a SALTED HASH of the erased person's name
+    (never the name) plus the erasure date. Imports consult it so that re-syncing an
+    old date range from Booksy cannot bring her back — but only for records dated on
+    or before `erased_on`, so a later namesake is a normal new client."""
+
+    __tablename__ = "erased_names"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    salt: Mapped[str] = mapped_column(String(32))
+    name_hash: Mapped[str] = mapped_column(String(64))
+    # how many words the hashed name has — lets a hand-typed cell ("Anna Kowalska —
+    # prezent") be tested by hashing its word-combinations of that size
+    token_count: Mapped[int] = mapped_column(default=2)
+    erased_on: Mapped[date] = mapped_column(Date, nullable=False)
 
 
 class Visit(TimestampMixin, Base):

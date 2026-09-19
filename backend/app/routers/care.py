@@ -32,6 +32,7 @@ from app.models import (
     Employee,
     Visit,
 )
+from app.rodo import ensure_real_client
 from app.schemas import (
     BeautyPlanIn,
     BeautyPlanOut,
@@ -127,7 +128,7 @@ def list_client_cards(client_id: int, db: DbDep) -> list[ClientCardOut]:
 def open_client_card(
     client_id: int, payload: ClientCardCreate, user: UserDep, db: DbDep
 ) -> ClientCardOut:
-    _get_or_404(db, Client, client_id, "client")
+    ensure_real_client(_get_or_404(db, Client, client_id, "client"))
     _get_or_404(db, CardType, payload.card_type_id, "card type")
     exists = db.scalar(
         select(ClientCard.id).where(
@@ -242,7 +243,7 @@ def save_beauty_plan(
     client_id: int, payload: BeautyPlanIn, user: UserDep, db: DbDep
 ) -> BeautyPlanOut:
     """Create the client's active plan, or replace its text sections."""
-    _get_or_404(db, Client, client_id, "client")
+    ensure_real_client(_get_or_404(db, Client, client_id, "client"))
     plan = active_plan(db, client_id)
     if plan is None:
         plan = BeautyPlan(client_id=client_id, created_by=user.sub)

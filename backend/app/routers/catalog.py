@@ -135,8 +135,14 @@ def due_rebookings(
         if floor <= nxt <= horizon:
             hits.append((client_id, service, last, nxt))
 
+    # the RODO placeholder carries many people's anonymised visits — it is nobody to remind
     clients = {
-        c.id: c for c in db.scalars(select(Client).where(Client.id.in_({h[0] for h in hits}))).all()
+        c.id: c
+        for c in db.scalars(
+            select(Client).where(
+                Client.id.in_({h[0] for h in hits}), Client.is_anonymous.is_(False)
+            )
+        ).all()
     }
     out = [
         DueRebook(

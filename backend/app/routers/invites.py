@@ -41,7 +41,13 @@ def create_invite(payload: InviteCreate, db: DbDep) -> InviteOut:
     """One-time code for a staff (employee_id) or client (client_id) target. The
     schema guarantees exactly one is set."""
     if payload.client_id is not None:
-        if db.get(Client, payload.client_id) is None:
+        target = db.get(Client, payload.client_id)
+        if target is not None and target.is_anonymous:
+            # a login on the RODO placeholder would see every erased client's visits
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, detail="anonimowy profil RODO nie może mieć konta"
+            )
+        if target is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="client not found")
         role, employee_id, client_id = "client", None, payload.client_id
     else:

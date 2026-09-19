@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.auth import UserDep, require_role
 from app.deps import get_db
 from app.models import Voucher, VoucherRedemption
+from app.rodo import ANON_NAME, ErasedNames
 from app.schemas import (
     VoucherCreate,
     VoucherImportSummary,
@@ -177,6 +178,7 @@ def import_vouchers(
         (v.client_name, v.purchased_on, v.total_value) for v in db.scalars(select(Voucher)).all()
     }
     imported = skipped_existing = skipped_inactive = 0
+    erased = ErasedNames.load(db)
     for p in parsed:
         active = (p.valid_until is not None and p.valid_until >= today) or (
             p.valid_until is None and p.purchased_on is not None and p.purchased_on >= recent
@@ -184,13 +186,15 @@ def import_vouchers(
         if not active:
             skipped_inactive += 1
             continue
-        key = (p.client_name, p.purchased_on, p.total_value)
+        # someone erased under RODO keeps her voucher (it is money owed), not her name
+        name = ANON_NAME if erased.mentions(p.client_name, p.purchased_on) else p.client_name
+        key = (name, p.purchased_on, p.total_value)
         if key in existing:
             skipped_existing += 1
             continue
         db.add(
             Voucher(
-                client_name=p.client_name,
+                client_name=name,
                 description=p.description,
                 total_value=p.total_value,
                 remaining_value=p.total_value,  # owner adjusts partially-used ones

@@ -27,6 +27,7 @@ from app.models import (
     ShopOrderItem,
     StockMovement,
 )
+from app.rodo import ensure_real_client
 from app.schemas import (
     OrderPickupIn,
     ProductIn,
@@ -245,8 +246,11 @@ def sell(payload: ProductSaleIn, user: UserDep, db: DbDep) -> ProductSaleOut:
     product = _product(db, payload.product_id)
     if not product.active:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="produkt wycofany ze sklepu")
-    if payload.client_id is not None and db.get(Client, payload.client_id) is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="client not found")
+    if payload.client_id is not None:
+        buyer = db.get(Client, payload.client_id)
+        if buyer is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="client not found")
+        ensure_real_client(buyer)
     # The sales commission is a cliff (0% below 1500, 10% of everything from it),
     # so WHICH month a sale lands in is money. Staff therefore sell "today", full
     # stop; only an admin may back-date a forgotten sale — never into the future.

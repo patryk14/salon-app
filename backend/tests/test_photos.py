@@ -130,7 +130,8 @@ def test_rodo_erase_purges_and_deletes(db_client: TestClient, fake_storage) -> N
 
     res = db_client.post(f"/clients/{cid}/erase")
     assert res.status_code == 200, res.text
-    assert res.json() == {"erased": True, "tombstoned": False}  # no Booksy id → no tombstone
+    body = res.json()
+    assert (body["erased"], body["tombstoned"], body["visits_anonymised"]) == (True, False, 0)
     assert "kErase" in fake_storage["deleted"]
     assert db_client.get(f"/clients/{cid}").status_code == 404
 

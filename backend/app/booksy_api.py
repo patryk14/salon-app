@@ -125,9 +125,11 @@ def pull_customers(db: Session, per_page: int = 100, max_pages: int = 60) -> dic
     row not already linked, so we never steal another person's link), else create
     a new one. Contacts/consents are the base for self-signup and reminders."""
     from app.models import Client, ClientTombstone
+    from app.rodo import ErasedNames
 
+    erased = ErasedNames.load(db)
     creds = load_credentials(db)
-    existing = db.scalars(select(Client)).all()
+    existing = db.scalars(select(Client).where(Client.is_anonymous.is_(False))).all()
     # RODO tombstones: Booksy ids of clients erased on request — never re-import.
     tombstoned = set(db.scalars(select(ClientTombstone.booksy_customer_id)).all())
     by_booksy = {c.booksy_customer_id: c for c in existing if c.booksy_customer_id}
@@ -178,6 +180,13 @@ def pull_customers(db: Session, per_page: int = 100, max_pages: int = 60) -> dic
                 ]
                 row = candidates[0] if candidates else None
             if row is None:
+                # Nobody live matches — if the name is on the RODO suppression list
+                # this is (almost certainly) the erased person still sitting in
+                # Booksy: do not bring her name, phone and e-mail back. A genuine new
+                # namesake gets her profile from her first imported visit, and is then
+                # matched here by name like anyone else.
+                if erased.matches(f"{first} {last}", None):
+                    continue
                 row = Client(first_name=first or "?", last_name=last or "?")
                 db.add(row)
                 created += 1
@@ -240,6 +249,9 @@ def pull_registers(db: Session, date_from: str, date_till: str) -> dict:
 
     start, end = _date.fromisoformat(date_from), _date.fromisoformat(date_till)
     days = {d: v for d, v in parsed.by_day.items() if start <= d <= end}
+    from app.rodo import ErasedNames
+
+    erased = ErasedNames.load(db)  # an erased client's name must not come back with a re-sync
     existing = {
         r.day: r
         for r in db.scalars(select(SalonDay).where(SalonDay.day >= start, SalonDay.day <= end))
@@ -258,7 +270,7 @@ def pull_registers(db: Session, date_from: str, date_till: str) -> dict:
         RegisterTxn(
             day=t.day,
             doc=t.doc[:80] or None,
-            client_name=t.client[:200] or None,
+            client_name=None if erased.matches(t.client, t.day) else (t.client[:200] or None),
             staff_name=t.staff[:200] or None,
             method=t.method[:60] or None,
             inflow=t.inflow,
@@ -294,15 +306,32 @@ def _sync_package_redemptions(db: Session, package_txs: list, start, end) -> dic
 
     from app.booksy import split_name
     from app.models import Client, EmployeeAlias, Package, PackageRedemption, Visit
+    from app.rodo import ANON_NAME, ErasedNames
 
+    erased = ErasedNames.load(db)
     alias_map = dict(db.execute(select(EmployeeAlias.alias, EmployeeAlias.employee_id)).all())
     matched = unmatched = 0
     for d, client_name, doc in package_txs:
         if not (start <= d <= end) or not doc:
             continue
+        row = db.scalar(select(PackageRedemption).where(PackageRedemption.booksy_ref == doc))
+        if erased.matches(client_name, d):
+            # Erased under RODO: keep the money, drop the name — and do NOT re-resolve
+            # by name (there is nobody to find): that would overwrite the package,
+            # performer and value we matched before her erasure with "unmatched",
+            # i.e. take the performer's commission away on the next sync.
+            if row is None:
+                row = PackageRedemption(booksy_ref=doc, redemption_date=d, value=Decimal("0"))
+                db.add(row)
+            row.client_name = ANON_NAME
+            unmatched += row.package_id is None or row.employee_id is None
+            matched += row.package_id is not None and row.employee_id is not None
+            continue
         first, last = split_name(client_name)
         client = db.scalar(
-            select(Client).where(Client.first_name == first, Client.last_name == last)
+            select(Client).where(
+                Client.first_name == first, Client.last_name == last, Client.is_anonymous.is_(False)
+            )
         )
         pkg = emp_id = None
         if client is not None:
@@ -326,20 +355,19 @@ def _sync_package_redemptions(db: Session, package_txs: list, start, end) -> dic
             )
             if staff:
                 emp_id = alias_map.get(staff)
-        value = (
-            (pkg.total_value / pkg.total_treatments).quantize(Decimal("0.01"))
-            if pkg
-            else Decimal("0")
-        )
-        row = db.scalar(select(PackageRedemption).where(PackageRedemption.booksy_ref == doc))
         if row is None:
-            row = PackageRedemption(booksy_ref=doc)
+            row = PackageRedemption(booksy_ref=doc, value=Decimal("0"))
             db.add(row)
-        row.package_id = pkg.id if pkg else None
-        row.employee_id = emp_id
+        # Never DOWNGRADE on a re-sync: what was matched (or assigned by hand —
+        # assigned_by is the audit of that) survives a run that resolves less.
+        if pkg is not None:
+            row.package_id = pkg.id
+            row.value = (pkg.total_value / pkg.total_treatments).quantize(Decimal("0.01"))
+        if emp_id is not None and not row.assigned_by:
+            row.employee_id = emp_id
         row.client_name = client_name
         row.redemption_date = d
-        row.value = value
+        pkg, emp_id = row.package_id, row.employee_id  # what the row ends up with
         if pkg is not None and emp_id is not None:
             matched += 1
         else:
@@ -375,15 +403,29 @@ def pull_packages(db: Session) -> dict:
     cutoff = date(date.today().year, 1, 1)
 
     created = updated = active = skipped_expired = 0
+    from app.rodo import ANON_NAME, ErasedNames
+
+    erased = ErasedNames.load(db)
     for p in parsed:
         if p.valid_until is not None and p.valid_until < cutoff:
             skipped_expired += 1
             continue
         first, last = split_name(p.client_name)
         client = db.scalar(
-            select(Client).where(Client.first_name == first, Client.last_name == last)
+            select(Client).where(
+                Client.first_name == first, Client.last_name == last, Client.is_anonymous.is_(False)
+            )
         )
         row = db.scalar(select(Package).where(Package.booksy_number == p.booksy_number))
+        # Erased under RODO. Two ways to know: we already anonymised this very package
+        # (sticky by its Booksy number), or nobody live carries the name and it is on
+        # the suppression list. Either way it is nobody's: keep the money, drop the
+        # name, and never link it to a LATER namesake (it would show in her portal).
+        suppressed = (row is not None and row.client_name == ANON_NAME) or (
+            client is None and erased.matches(p.client_name, p.valid_from)
+        )
+        if suppressed:
+            client = None
         if row is None:
             row = Package(booksy_number=p.booksy_number)
             db.add(row)
@@ -391,7 +433,7 @@ def pull_packages(db: Session) -> dict:
         else:
             updated += 1
         row.client_id = client.id if client else None
-        row.client_name = p.client_name
+        row.client_name = ANON_NAME if suppressed else p.client_name
         row.name = p.name
         row.total_value = p.total_value
         row.total_treatments = p.total_treatments

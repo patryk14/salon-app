@@ -7,6 +7,7 @@ existing rows instead of duplicating them. Clients are matched by display name
 """
 
 import logging
+from datetime import date
 from decimal import Decimal
 from typing import Annotated
 
@@ -28,6 +29,7 @@ from app.models import (
     LedgerEntry,
     Visit,
 )
+from app.rodo import ErasedNames, anonymous_client, anonymous_client_id
 
 logger = logging.getLogger(__name__)
 
@@ -99,16 +101,28 @@ class CustomerSyncSummary(BaseModel):
     with_phone: int
 
 
-def _client_for(db: Session, cache: dict[str, Client], name: str) -> tuple[Client, bool]:
+def _client_for(
+    db: Session, cache: dict[str, Client], name: str, erased: ErasedNames, on: date
+) -> tuple[Client, bool]:
+    """Whose visit is this? A LIVE client of that name always wins (names collide —
+    silently anonymising an active client's history is the worse failure). Only
+    when nobody carries the name do we ask whether it belongs to someone erased
+    under RODO (and dated before her erasure): then it goes to the anonymous
+    placeholder instead of recreating her. The placeholder is never cached under a
+    name — the answer depends on the row's date."""
     if name in cache:
         return cache[name], False
     first, last = split_name(name)
     existing = db.scalars(
-        select(Client).where(Client.first_name == first, Client.last_name == last)
+        select(Client).where(
+            Client.first_name == first, Client.last_name == last, Client.is_anonymous.is_(False)
+        )
     ).first()
     if existing is not None:
         cache[name] = existing
         return existing, False
+    if erased.matches(name, on):
+        return anonymous_client(db), False
     client = Client(first_name=first, last_name=last)
     db.add(client)
     db.flush()
@@ -147,9 +161,20 @@ def import_visit_rows(db: Session, rows: list[VisitRow]) -> ImportSummary:
     """Upsert parsed visit rows — the shared core of both the xlsx upload and the
     automatic pull (F5). Idempotent on booksy_ref."""
     cache: dict[str, Client] = {}
+    erased = ErasedNames.load(db)
+    anon_id = anonymous_client_id(db)
     clients_created = visits_created = visits_updated = 0
     for row in rows:
-        client, created = _client_for(db, cache, row.client_name)
+        # Anonymisation is sticky by IDENTITY: a visit we already hold on the RODO
+        # placeholder stays there whatever name/date the report carries (she was
+        # renamed on our side, Booksy spells her differently, the booking is in the
+        # future…) — and we don't even look the name up, so nobody is recreated.
+        held = db.scalar(select(Visit.client_id).where(Visit.booksy_ref == row.booksy_ref))
+        if held is not None and held == anon_id:
+            _upsert_visit(db, anonymous_client(db), row)
+            visits_updated += 1
+            continue
+        client, created = _client_for(db, cache, row.client_name, erased, row.starts_at.date())
         clients_created += created
         if _upsert_visit(db, client, row):
             visits_created += 1

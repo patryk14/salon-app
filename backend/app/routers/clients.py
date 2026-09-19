@@ -5,6 +5,7 @@ Row-scoped CLIENT access (a client seeing only herself) arrives with the
 client portal slice — these endpoints stay staff-facing.
 """
 
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -26,13 +27,12 @@ from app.models import (
     Package,
     Photo,
     ProductSale,
-    RegisterTxn,
     ShopOrder,
     UserAccount,
     Visit,
     utcnow,
 )
-from app.reconciliation import norm_name
+from app.rodo import anonymise_client, ensure_real_client
 from app.schemas import (
     ClientCreate,
     ClientOut,
@@ -51,10 +51,14 @@ visits_router = APIRouter(prefix="/visits", tags=["visits"], dependencies=[requi
 DbDep = Annotated[Session, Depends(get_db)]
 
 
-def _get_client_or_404(db: Session, client_id: int) -> Client:
+def _get_client_or_404(db: Session, client_id: int, mutable: bool = False) -> Client:
+    """`mutable=True` for anything that edits / deletes / merges: the shared RODO
+    placeholder holds other people's anonymised visits and must stay untouched."""
     client = db.get(Client, client_id)
     if client is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="client not found")
+    if mutable:
+        ensure_real_client(client)
     return client
 
 
@@ -65,7 +69,7 @@ def list_clients(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> Page[ClientOut]:
-    query = select(Client)
+    query = select(Client).where(Client.is_anonymous.is_(False))
     if q:
         pattern = f"%{' '.join(q.split())}%"
         # Full-name forms too: the front desk types "Karolina Sobas" (or "Sobas
@@ -103,7 +107,7 @@ def get_client(client_id: int, db: DbDep) -> ClientOut:
 
 @router.patch("/{client_id}")
 def update_client(client_id: int, payload: ClientUpdate, db: DbDep) -> ClientOut:
-    client = _get_client_or_404(db, client_id)
+    client = _get_client_or_404(db, client_id, mutable=True)
     fields = payload.model_dump(exclude_unset=True)
     # Photo consent carries an audit timestamp: granting stamps now, revoking
     # clears it, so `photo_consent_at is not None` always means "consent stands".
@@ -132,7 +136,7 @@ def delete_client(client_id: int, user: UserDep, db: DbDep) -> None:
     """Ordinary delete (a duplicate/mistaken row): cascades to visits and photo
     rows and clears the S3 objects too — but leaves NO tombstone, so a Booksy
     backfill may legitimately recreate the client. RODO erasure is /erase."""
-    client = _get_client_or_404(db, client_id)
+    client = _get_client_or_404(db, client_id, mutable=True)
     _purge_client_storage(db, client)
     drop_client_orders(db, client.id, sub=user.sub, name=actor_name(db, user))
     db.delete(client)
@@ -148,22 +152,34 @@ def erase_client(client_id: int, user: UserDep, db: DbDep) -> dict:
     open orders reserved (released here, or it vanishes from the shelf), and her
     name inside the kept Booksy till rows (register_txns — scrubbed here). Booksy
     itself stays the salon's separate system of record: she must be deleted there
-    too, or a later sync of those dates brings the name back."""
-    client = _get_client_or_404(db, client_id)
+    too. Her visits are NOT deleted but anonymised (see app/rodo.py): the performer
+    keeps her commission, and a suppression entry stops a re-import of those dates
+    from recreating her."""
+    client = _get_client_or_404(db, client_id, mutable=True)
     _purge_client_storage(db, client)
     drop_client_orders(db, client.id, sub=user.sub, name=actor_name(db, user))
-    names = {
-        norm_name(f"{client.first_name} {client.last_name}"),
-        norm_name(f"{client.last_name} {client.first_name}"),
-    }
-    for txn in db.scalars(select(RegisterTxn).where(RegisterTxn.client_name.is_not(None))):
-        if norm_name(txn.client_name) in names:
-            txn.client_name = None
+    # her portal login dies with the row, but the Cognito user (her verified e-mail)
+    # lives in the user pool — report it so it can be removed there as well
+    logins = list(
+        db.scalars(select(UserAccount.cognito_sub).where(UserAccount.client_id == client.id))
+    )
+    done = anonymise_client(db, client, date.today())
     tombstoned = client.booksy_customer_id is not None
     if tombstoned and db.get(ClientTombstone, client.booksy_customer_id) is None:
         db.add(ClientTombstone(booksy_customer_id=client.booksy_customer_id))
+    # the visits were re-pointed with a bulk UPDATE — drop the ORM's stale view of
+    # them, or deleting the client would cascade to rows that are no longer hers
+    db.expire(client)
     db.delete(client)
-    return {"erased": True, "tombstoned": tombstoned}
+    return {
+        "erased": True,
+        "tombstoned": tombstoned,
+        "visits_anonymised": done.visits,
+        # False = another client carries the same name, so unlinked records (vouchers,
+        # never-imported history) could not be told apart and were left alone
+        "name_suppressed": done.name_suppressed,
+        "cognito_accounts": logins,
+    }
 
 
 @router.post("/{client_id}/merge-into/{target_id}", dependencies=[require_role("admin")])
@@ -176,8 +192,8 @@ def merge_client(client_id: int, target_id: int, db: DbDep) -> ClientOut:
     No S3 purge: the photo objects live on under the target."""
     if client_id == target_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="cannot merge a client into itself")
-    source = _get_client_or_404(db, client_id)
-    target = _get_client_or_404(db, target_id)
+    source = _get_client_or_404(db, client_id, mutable=True)
+    target = _get_client_or_404(db, target_id, mutable=True)
 
     def _login(cid: int) -> UserAccount | None:
         return db.scalar(select(UserAccount).where(UserAccount.client_id == cid))
@@ -273,7 +289,7 @@ def list_client_visits(
 
 @router.post("/{client_id}/visits", status_code=status.HTTP_201_CREATED)
 def create_visit(client_id: int, payload: VisitCreate, db: DbDep) -> VisitOut:
-    _get_client_or_404(db, client_id)
+    _get_client_or_404(db, client_id, mutable=True)
     visit = Visit(client_id=client_id, **payload.model_dump())
     db.add(visit)
     db.flush()
@@ -324,11 +340,20 @@ def list_visits(
     return Page[VisitBrowseOut](items=items, total=total, limit=limit, offset=offset)
 
 
-@visits_router.patch("/{visit_id}")
-def update_visit(visit_id: int, payload: VisitUpdate, db: DbDep) -> VisitOut:
+def _editable_visit(db: Session, visit_id: int) -> Visit:
+    """An anonymised visit is a frozen business record: a note typed onto it ("to
+    była Anna K.") would re-identify it, and deleting it would take the performer's
+    commission — the very thing anonymising instead of deleting protects."""
     visit = db.get(Visit, visit_id)
     if visit is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="visit not found")
+    ensure_real_client(visit.client)
+    return visit
+
+
+@visits_router.patch("/{visit_id}")
+def update_visit(visit_id: int, payload: VisitUpdate, db: DbDep) -> VisitOut:
+    visit = _editable_visit(db, visit_id)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(visit, field, value)
     db.flush()
@@ -337,7 +362,4 @@ def update_visit(visit_id: int, payload: VisitUpdate, db: DbDep) -> VisitOut:
 
 @visits_router.delete("/{visit_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_visit(visit_id: int, db: DbDep) -> None:
-    visit = db.get(Visit, visit_id)
-    if visit is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="visit not found")
-    db.delete(visit)
+    db.delete(_editable_visit(db, visit_id))
