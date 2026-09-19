@@ -1,0 +1,15 @@
+# Keeps the SHA-pinned GitHub Actions in ci.yml current: one grouped PR a week that
+# bumps the commit SHA and its version comment together. PRs only run the `test`
+# job (no AWS access), so a proposed bump is exercised before anyone merges it.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
