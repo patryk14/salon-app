@@ -39,6 +39,13 @@ interface Voucher {
   valid_until: string | null;
   status: string;
 }
+interface Photo {
+  id: number;
+  kind: 'before' | 'after' | null;
+  note: string | null;
+  taken_on: string | null;
+  url: string | null;
+}
 interface Rebook {
   service: string;
   last_visit: string;
@@ -76,6 +83,7 @@ export default function KlientPortal() {
   const [pkgs, setPkgs] = useState<Pkg[]>([]);
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
   const [rebook, setRebook] = useState<Rebook[]>([]);
+  const [photos, setPhotos] = useState<Photo[]>([]);
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -132,6 +140,15 @@ export default function KlientPortal() {
   useEffect(() => {
     if (me?.linked) loadData();
   }, [me?.linked, month]);
+
+  // Progress photos don't depend on the month — load once (each load re-signs
+  // the view URLs). A failure here must not hide the rest of the profile.
+  useEffect(() => {
+    if (!me?.linked) return;
+    apiFetch<Photo[]>('/klient/me/photos')
+      .then(setPhotos)
+      .catch(() => setPhotos([]));
+  }, [me?.linked]);
 
   async function claim() {
     if (!code.trim()) return;
@@ -289,6 +306,29 @@ export default function KlientPortal() {
           </div>
         )}
       </section>
+
+      {photos.length > 0 && (
+        <section>
+          <div class="shead">
+            <h3>Zdjęcia postępów</h3>
+            <span class="muted small">prywatne — widzisz je tylko Ty i salon</span>
+          </div>
+          <div class="pgrid">
+            {photos.map((p) => (
+              <figure key={p.id}>
+                <a href={p.url ?? '#'} target="_blank" rel="noopener">
+                  <img src={p.url ?? ''} alt={p.note ?? 'zdjęcie postępów'} loading="lazy" />
+                </a>
+                <figcaption>
+                  {p.kind && <span class={`badge k-${p.kind}`}>{p.kind === 'before' ? 'Przed' : 'Po'}</span>}{' '}
+                  <span class="muted small">{p.taken_on ? fmtDate(p.taken_on) : ''}</span>
+                  {p.note && <div class="small">{p.note}</div>}
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section>
         <div class="shead">

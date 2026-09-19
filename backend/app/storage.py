@@ -27,18 +27,32 @@ _EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/he
 ALLOWED_CONTENT_TYPES = frozenset(_EXT)
 
 
-@lru_cache
-def _client():
-    s = get_settings()
-    # Path-style addressing is required for MinIO (no per-bucket DNS); harmless on
-    # real S3. SigV4 for presigned URLs that MinIO and S3 both accept.
-    cfg = Config(signature_version="s3v4", s3={"addressing_style": "path"})
+def _make_client(endpoint_url: str | None):
+    # Path-style addressing is required for MinIO (no per-bucket DNS); real S3
+    # gets the standard virtual-hosted style. SigV4 works for both.
+    style = "path" if endpoint_url else "virtual"
+    cfg = Config(signature_version="s3v4", s3={"addressing_style": style})
     return boto3.client(
         "s3",
-        endpoint_url=s.s3_endpoint_url,  # set locally (MinIO), None in AWS
-        region_name=s.aws_region,
+        endpoint_url=endpoint_url,  # set locally (MinIO), None in AWS
+        region_name=get_settings().aws_region,
         config=cfg,
     )
+
+
+@lru_cache
+def _client():
+    """Client for server-side calls (deletes) — the endpoint the API can reach."""
+    return _make_client(get_settings().s3_endpoint_url)
+
+
+@lru_cache
+def _presign_client():
+    """Client used only to SIGN urls. SigV4 signs the Host header, so the URL must
+    be signed for the host the browser will actually call — locally that differs
+    from the API's own view of MinIO (see s3_public_endpoint_url)."""
+    s = get_settings()
+    return _make_client(s.s3_public_endpoint_url or s.s3_endpoint_url)
 
 
 def new_key(client_id: int, content_type: str) -> str:
@@ -51,7 +65,7 @@ def new_key(client_id: int, content_type: str) -> str:
 def presign_put(key: str, content_type: str) -> str:
     """Presigned PUT URL for a browser upload. The client MUST send the same
     Content-Type header, or the signature check fails."""
-    return _client().generate_presigned_url(
+    return _presign_client().generate_presigned_url(
         "put_object",
         Params={"Bucket": get_settings().s3_bucket, "Key": key, "ContentType": content_type},
         ExpiresIn=PRESIGN_TTL_SECONDS,
@@ -60,7 +74,7 @@ def presign_put(key: str, content_type: str) -> str:
 
 def presign_get(key: str) -> str:
     """Presigned GET URL to view one photo."""
-    return _client().generate_presigned_url(
+    return _presign_client().generate_presigned_url(
         "get_object",
         Params={"Bucket": get_settings().s3_bucket, "Key": key},
         ExpiresIn=PRESIGN_TTL_SECONDS,

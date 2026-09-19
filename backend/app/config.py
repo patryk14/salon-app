@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     # S3: MinIO locally (endpoint set), real S3 in AWS (endpoint empty).
     s3_bucket: str
     s3_endpoint_url: str | None = None
+    # Host the BROWSER uses to reach the bucket, baked into presigned URLs. Only
+    # needed locally, where the API sees MinIO as http://minio:9000 but the
+    # browser sees it as http://localhost:9000. Unset in AWS (real S3 has one name).
+    s3_public_endpoint_url: str | None = None
     aws_region: str = "eu-central-1"
 
     # SMTP: Mailpit locally, SES in AWS.

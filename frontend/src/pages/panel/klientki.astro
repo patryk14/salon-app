@@ -1,0 +1,91 @@
+---
+// Clients + progress photos (F9, staff & admin). PanelNav renders only for an
+// admin; staff reach this page from their own dashboard.
+import ClientsView from '../../components/ClientsView.tsx';
+import PanelNav from '../../components/PanelNav.astro';
+---
+
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Klientki i zdjęcia — Charm Skin</title>
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="eyebrow">Charm Skin · panel</span>
+        <h1>Klientki i zdjęcia postępów</h1>
+      </header>
+      <PanelNav />
+      <ClientsView client:only="preact" />
+    </main>
+
+    <style is:global>
+      :root {
+        --paper: #f6f2ef; --card: #fff; --ink: #2c2320; --muted: #8a7d76;
+        --line: #e9dfd8; --line2: #dccec4; --accent: #8a4d6d; --accent-soft: #f3e6ed;
+        --pay: #2f7d5b; --pay-soft: #e2f0e8; --draft: #a86a1f; --draft-soft: #f6ead6;
+        --err: #b4462f; --err-soft: #f8e4de; --field: #fbf8f6;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --paper: #1b1917; --card: #262220; --ink: #ece5e1; --muted: #a99d95;
+          --line: #372f2c; --line2: #463c37; --accent: #d295b3; --accent-soft: #38262f;
+          --pay: #77c39b; --pay-soft: #1e3329; --draft: #e0ac6a; --draft-soft: #362a1a;
+          --err: #e5917c; --err-soft: #3a251f; --field: #201d1b;
+        }
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--paper); color: var(--ink);
+        font-family: 'Public Sans', system-ui, -apple-system, 'Segoe UI', sans-serif; }
+      main { max-width: 1100px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+      .eyebrow { font-size: .7rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--accent); }
+      h1 { margin: .2rem 0 1.4rem; font-size: 1.7rem; font-weight: 600; }
+      h2 { font-size: 1.1rem; margin: 0; }
+      h2.section { margin: 1.6rem 0 .6rem; }
+      .muted { color: var(--muted); }
+      .small { font-size: .82rem; }
+      .gate { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 1.5rem; display: flex; flex-direction: column; gap: .7rem; align-items: flex-start; }
+      .btn { font: inherit; font-size: .9rem; border: 1px solid var(--line2); background: var(--card); color: var(--ink); border-radius: 8px; padding: .5rem .9rem; cursor: pointer; }
+      .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+      .btn.danger { background: var(--err); color: #fff; border-color: var(--err); white-space: nowrap; }
+      .btn:disabled { opacity: .55; cursor: default; }
+      .err { background: var(--err-soft); color: var(--err); border-radius: 8px; padding: .6rem .8rem; margin-bottom: .8rem; font-size: .88rem; }
+      .link { background: none; border: 0; font: inherit; font-size: .8rem; cursor: pointer; padding: 0; text-decoration: underline; }
+      .link.danger { color: var(--err); align-self: flex-start; }
+      input, select { font: inherit; border: 1px solid var(--line2); background: var(--field); color: var(--ink); border-radius: 8px; padding: .4rem .55rem; max-width: 100%; }
+
+      .split { display: grid; grid-template-columns: 300px 1fr; gap: 1.5rem; align-items: start; }
+      @media (max-width: 760px) { .split { grid-template-columns: 1fr; } }
+      .list .search { width: 100%; }
+      .list p { margin: .4rem 0; }
+      .list ul { list-style: none; margin: 0; padding: 0; max-height: 70vh; overflow-y: auto; background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+      .list li + li { border-top: 1px solid var(--line); }
+      .row { width: 100%; display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; text-align: left; font: inherit; color: var(--ink); background: none; border: 0; padding: .5rem .7rem; cursor: pointer; }
+      .row:hover { background: var(--field); }
+      .row.active { background: var(--accent-soft); }
+      .detail { min-width: 0; }
+      .cat-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; margin-bottom: .8rem; flex-wrap: wrap; }
+      .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: .9rem 1rem; margin-bottom: .8rem; }
+      .card p { margin: .35rem 0 0; }
+      .chk { display: inline-flex; align-items: center; gap: .45rem; }
+      .chk.strong { font-weight: 600; }
+      .chk input { width: auto; }
+      .upload { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+      .upload .grow { flex: 1; min-width: 10rem; }
+      .badge { font-size: .68rem; font-weight: 700; padding: .12rem .45rem; border-radius: 999px; background: var(--line); color: var(--muted); }
+      .badge.ok, .badge.after { background: var(--pay-soft); color: var(--pay); }
+      .badge.before { background: var(--draft-soft); color: var(--draft); }
+
+      .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: .8rem; }
+      figure { margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+      figure img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: cover; background: var(--field); }
+      figcaption { display: flex; flex-direction: column; gap: .2rem; padding: .5rem .6rem; font-size: .85rem; }
+
+      .rodo { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; margin-top: 2rem; border-color: var(--err); }
+      :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    </style>
+  </body>
+</html>

@@ -41,6 +41,9 @@ services:
       AUTH_AUDIENCE: ${AUTH_AUDIENCE:-7rl6qhkurb1bn598rvjvu7k4pg}
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://salon:salon@db:5432/salon}
       S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://minio:9000}
+      # Presigned URLs are opened by the BROWSER, which reaches MinIO through the
+      # published port — not through the compose-internal hostname above.
+      S3_PUBLIC_ENDPOINT_URL: ${S3_PUBLIC_ENDPOINT_URL:-http://localhost:9000}
       S3_BUCKET: ${S3_BUCKET:-salon-photos}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minio}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-minio12345}

@@ -71,6 +71,12 @@ import KlientPortal from '../components/KlientPortal.tsx';
       .badge.s-active, .badge.s-completed { background: var(--pay-soft); color: var(--pay); }
       .badge.s-used, .badge.s-used_up, .badge.s-scheduled { background: var(--accent-soft); color: var(--accent); }
       .badge.s-expired, .badge.s-cancelled, .badge.s-no_show { background: var(--err-soft); color: var(--err); }
+      .badge.k-after { background: var(--pay-soft); color: var(--pay); }
+      .badge.k-before { background: var(--draft-soft); color: var(--draft); }
+      .pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .7rem; }
+      .pgrid figure { margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+      .pgrid img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: cover; background: var(--field); }
+      .pgrid figcaption { padding: .45rem .6rem; font-size: .85rem; }
       :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
     </style>
   </body>

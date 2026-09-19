@@ -352,6 +352,9 @@ export default function StaffPortal() {
         <a class="btn" href="/panel/zaopatrzenie">
           Lista zamówień
         </a>
+        <a class="btn" href="/panel/klientki">
+          Klientki i zdjęcia
+        </a>
         <span class="spacer" />
         <button class="btn" onClick={() => logout()}>
           Wyloguj
