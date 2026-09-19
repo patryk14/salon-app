@@ -151,6 +151,11 @@ def pull_customers(db: Session, per_page: int = 100, max_pages: int = 60) -> dic
             last = (md.get("last_name") or "").strip()
             if not (first or last):  # nameless ghost record → skip
                 continue
+            if not last and " " in first:
+                # Booksy sometimes carries the whole name in first_name ("Karolina
+                # Sobas" / ""). Split it, or the name match below misses the existing
+                # row and a duplicate "Karolina Sobas / ?" profile is created.
+                first, last = first.rsplit(" ", 1)
             if bid and bid in tombstoned:  # RODO-erased → do not recreate or re-link
                 continue
             total += 1

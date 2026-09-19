@@ -8,14 +8,23 @@ client portal slice — these endpoints stay staff-facing.
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app import storage
 from app.auth import require_role
 from app.deps import get_db
 from app.derivation import month_bounds
-from app.models import Client, ClientTombstone, Photo, Visit, utcnow
+from app.models import (
+    Client,
+    ClientTombstone,
+    Invite,
+    Package,
+    Photo,
+    UserAccount,
+    Visit,
+    utcnow,
+)
 from app.schemas import (
     ClientCreate,
     ClientOut,
@@ -49,12 +58,16 @@ def list_clients(
 ) -> Page[ClientOut]:
     query = select(Client)
     if q:
-        pattern = f"%{q}%"
+        pattern = f"%{' '.join(q.split())}%"
+        # Full-name forms too: the front desk types "Karolina Sobas" (or "Sobas
+        # Karolina"), which matches neither column alone.
         query = query.where(
             or_(
                 Client.first_name.ilike(pattern),
                 Client.last_name.ilike(pattern),
                 Client.phone.ilike(pattern),
+                (Client.first_name + " " + Client.last_name).ilike(pattern),
+                (Client.last_name + " " + Client.first_name).ilike(pattern),
             )
         )
     total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
@@ -122,6 +135,62 @@ def erase_client(client_id: int, db: DbDep) -> dict:
         db.add(ClientTombstone(booksy_customer_id=client.booksy_customer_id))
     db.delete(client)
     return {"erased": True, "tombstoned": tombstoned}
+
+
+@router.post("/{client_id}/merge-into/{target_id}", dependencies=[require_role("admin")])
+def merge_client(client_id: int, target_id: int, db: DbDep) -> ClientOut:
+    """Fold a duplicate profile into the real one (admin only). Everything the
+    duplicate owns — visits, photos, packages, invites, portal login — moves to
+    the target; the target's own contact data wins and only its GAPS are filled
+    from the duplicate (incl. the Booksy id, so the next backfill updates the
+    survivor instead of recreating the duplicate). Then the duplicate row goes.
+    No S3 purge: the photo objects live on under the target."""
+    if client_id == target_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="cannot merge a client into itself")
+    source = _get_client_or_404(db, client_id)
+    target = _get_client_or_404(db, target_id)
+
+    def _login(cid: int) -> UserAccount | None:
+        return db.scalar(select(UserAccount).where(UserAccount.client_id == cid))
+
+    if _login(source.id) is not None and _login(target.id) is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="both profiles have a portal login — unlink one before merging",
+        )
+
+    for model in (Visit, Photo, Package, Invite, UserAccount):
+        db.execute(update(model).where(model.client_id == source.id).values(client_id=target.id))
+
+    # Fill the survivor's gaps. The Booksy id is unique, so it must leave the
+    # duplicate (flush) before it can land on the target.
+    booksy_id = source.booksy_customer_id
+    source.booksy_customer_id = None
+    db.flush()
+    if target.booksy_customer_id is None:
+        target.booksy_customer_id = booksy_id
+    elif booksy_id is not None and db.get(ClientTombstone, booksy_id) is None:
+        # Both came from Booksy: the survivor keeps its own id, and the duplicate's
+        # id is tombstoned — otherwise the next backfill would recreate it.
+        db.add(ClientTombstone(booksy_customer_id=booksy_id, reason="merged"))
+    for field in ("phone", "email", "notes"):
+        if not getattr(target, field) and getattr(source, field):
+            setattr(target, field, getattr(source, field))
+    target.marketing_consent = target.marketing_consent or source.marketing_consent
+    target.privacy_consent = target.privacy_consent or source.privacy_consent
+    if source.photo_consent and not target.photo_consent:
+        target.photo_consent = True
+        target.photo_consent_at = source.photo_consent_at or utcnow()
+
+    # The rows were re-pointed with bulk UPDATEs, so the ORM's cached collections
+    # on `source` are stale — expire them, or the delete cascade would try to
+    # remove children that now belong to the target.
+    db.flush()
+    db.expire(source)
+    db.delete(source)
+    db.flush()
+    db.refresh(target)
+    return ClientOut.model_validate(target)
 
 
 @router.get("/{client_id}/visits")

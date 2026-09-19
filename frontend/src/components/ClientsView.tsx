@@ -71,6 +71,9 @@ export default function ClientsView() {
   const [visitId, setVisitId] = useState('');
   const [takenOn, setTakenOn] = useState('');
   const [note, setNote] = useState('');
+  // merge (admin): fold this duplicate into the real profile
+  const [mergeQ, setMergeQ] = useState('');
+  const [mergeHits, setMergeHits] = useState<Client[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -101,8 +104,51 @@ export default function ClientsView() {
     return () => clearTimeout(t);
   }, [q, ready, isStaff]);
 
+  // debounced target search for the merge box
+  useEffect(() => {
+    if (!client || mergeQ.trim().length < 2) {
+      setMergeHits([]);
+      return;
+    }
+    const t = setTimeout(async () => {
+      try {
+        const page = await apiFetch<Page<Client>>(
+          `/clients?limit=8&q=${encodeURIComponent(mergeQ.trim())}`,
+        );
+        setMergeHits(page.items.filter((c) => c.id !== client.id));
+      } catch {
+        setMergeHits([]);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [mergeQ, client?.id]);
+
+  async function mergeInto(target: Client) {
+    if (!client) return;
+    const from = `${client.first_name} ${client.last_name}`;
+    const to = `${target.first_name} ${target.last_name}`;
+    if (
+      !confirm(
+        `Scalić profil „${from}" (#${client.id}) z „${to}" (#${target.id})?\n\n` +
+          `Wizyty, zdjęcia, pakiety i konto w portalu przejdą na „${to}", a profil „${from}" zniknie. ` +
+          `Tej operacji nie da się cofnąć.`,
+      )
+    )
+      return;
+    try {
+      const merged = await apiFetch<Client>(`/clients/${client.id}/merge-into/${target.id}`, {
+        method: 'POST',
+      });
+      setResults((rs) => rs.filter((r) => r.id !== client.id).map((r) => (r.id === merged.id ? merged : r)));
+      await open(merged);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function open(c: Client) {
     setError(null);
+    setMergeQ('');
     setClient(c);
     setPhotos([]);
     setVisits([]);
@@ -337,6 +383,39 @@ export default function ClientsView() {
                 </figure>
               ))}
             </div>
+
+            {isAdmin && (
+              <div class="card merge">
+                <b>Duplikat? Scal z właściwym profilem</b>
+                <p class="muted small">
+                  Ten profil (#{client.id}) zostanie wchłonięty: jego wizyty, zdjęcia, pakiety i konto
+                  w portalu przejdą na wybrany profil.
+                </p>
+                <input
+                  type="search"
+                  placeholder="Szukaj właściwego profilu…"
+                  value={mergeQ}
+                  onInput={(e) => setMergeQ((e.target as HTMLInputElement).value)}
+                />
+                {mergeHits.length > 0 && (
+                  <ul class="hits">
+                    {mergeHits.map((h) => (
+                      <li key={h.id}>
+                        <span>
+                          {h.first_name} {h.last_name}{' '}
+                          <span class="muted small">
+                            #{h.id} {[h.phone, h.email].filter(Boolean).join(' · ')}
+                          </span>
+                        </span>
+                        <button class="btn sm" onClick={() => mergeInto(h)}>
+                          Scal z tym
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
 
             {isAdmin && (
               <div class="card rodo">

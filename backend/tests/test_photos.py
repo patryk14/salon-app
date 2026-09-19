@@ -193,3 +193,107 @@ def test_pull_customers_skips_tombstoned(monkeypatch) -> None:
     assert res["created"] == 1  # only Anna; the tombstoned id is skipped
     names = {c.booksy_customer_id for c in db.scalars(select(Client)).all()}
     assert names == {111}
+
+
+# ------------------------------------------------------- duplicates (search/merge)
+def test_search_matches_full_name_in_either_order(db_client: TestClient) -> None:
+    _client(db_client, "Karolina", "Sobas")
+    _client(db_client, "Karolina Sobas", "?")  # the Booksy-shaped duplicate
+    for q in ("Karolina Sobas", "sobas karolina", "  Karolina   Sobas "):
+        names = [c["last_name"] for c in db_client.get("/clients", params={"q": q}).json()["items"]]
+        assert "Sobas" in names, q  # the real profile is found, not only the duplicate
+
+
+def test_merge_moves_everything_and_fills_gaps(portal_client: TestClient, fake_storage) -> None:
+    c = portal_client
+    real = c.post(
+        "/clients", json={"first_name": "Karolina", "last_name": "Sobas", "email": "k@x.pl"}
+    ).json()["id"]
+    dup = c.post(
+        "/clients",
+        json={
+            "first_name": "Karolina Sobas",
+            "last_name": "?",
+            "email": "other@x.pl",
+            "phone": "600100200",
+        },
+    ).json()["id"]
+    c.patch(f"/clients/{dup}", json={"photo_consent": True})
+    c.post(f"/clients/{dup}/photos", json={"s3_key": "kDup", "content_type": "image/jpeg"})
+    c.post(
+        f"/clients/{dup}/visits",
+        json={"starts_at": "2026-09-10T10:00:00Z", "service_name": "Peeling"},
+    )
+    # the real profile owns the portal login
+    code = c.post("/invites", json={"client_id": real}).json()["code"]
+    c.as_user("client-sub-1", {"client"})
+    assert c.post("/invites/claim", json={"code": code}).status_code == 200
+    assert c.get("/klient/me/photos").json() == []  # the bug: photo sits on the duplicate
+
+    c.as_user("test-admin", {"admin"})
+    merged = c.post(f"/clients/{dup}/merge-into/{real}")
+    assert merged.status_code == 200, merged.text
+    body = merged.json()
+    assert body["email"] == "k@x.pl"  # the survivor's own data wins…
+    assert body["phone"] == "600100200"  # …gaps are filled from the duplicate
+    assert body["photo_consent"] is True
+    assert c.get(f"/clients/{dup}").status_code == 404
+    assert len(c.get(f"/clients/{real}/photos").json()) == 1
+    assert c.get(f"/clients/{real}/visits").json()["total"] == 1
+    assert fake_storage["deleted"] == []  # a merge never deletes photo objects
+
+    c.as_user("client-sub-1", {"client"})
+    assert len(c.get("/klient/me/photos").json()) == 1  # now she sees it
+
+
+def test_merge_guards(portal_client: TestClient) -> None:
+    c = portal_client
+    a, b = _client(c, "Anna", "A"), _client(c, "Anna A", "?")
+    assert c.post(f"/clients/{a}/merge-into/{a}").status_code == 400
+    assert c.post(f"/clients/{a}/merge-into/999999").status_code == 404
+    # two portal logins → refuse, a human must decide which one survives
+    for cid, sub in ((a, "sub-a"), (b, "sub-b")):
+        c.as_user("test-admin", {"admin"})
+        code = c.post("/invites", json={"client_id": cid}).json()["code"]
+        c.as_user(sub, {"client"})
+        assert c.post("/invites/claim", json={"code": code}).status_code == 200
+    c.as_user("test-admin", {"admin"})
+    assert c.post(f"/clients/{b}/merge-into/{a}").status_code == 409
+    c.as_user("staff-x", {"staff"})
+    assert c.post(f"/clients/{b}/merge-into/{a}").status_code == 403
+
+
+def test_pull_customers_splits_full_name_and_matches_existing(monkeypatch) -> None:
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    from app import booksy_api
+    from app.models import Base, Client
+
+    eng = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(eng)
+    db = sessionmaker(bind=eng)()
+    db.add(Client(first_name="Karolina", last_name="Sobas"))
+    db.flush()
+
+    page = {
+        "customers": [
+            {"merged_data": {"id": 46672185, "first_name": "Karolina Sobas", "last_name": ""}}
+        ]
+    }
+    monkeypatch.setattr(
+        booksy_api, "load_credentials", lambda db: booksy_api.BooksyCredentials("1", "t", "k", "f")
+    )
+    monkeypatch.setattr(
+        booksy_api,
+        "_get_json",
+        lambda creds, url, timeout=60: page if url.endswith("page=1") else {"customers": []},
+    )
+
+    res = booksy_api.pull_customers(db, per_page=100)
+    assert (res["created"], res["updated"]) == (0, 1)  # matched, no duplicate
+    rows = db.scalars(select(Client)).all()
+    assert len(rows) == 1 and rows[0].booksy_customer_id == 46672185
