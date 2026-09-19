@@ -7,6 +7,12 @@
 # Image tags: <YYYYMMDD>-<git sha7> (immutable, goes into deployment manifests)
 #             sha-<sha7>            (immutable, for tooling that matches by pattern)
 # Never `latest` — ECR is IMMUTABLE and would reject the second push anyway.
+#
+# Actions are pinned to a full commit SHA (the trailing comment is the release it
+# corresponds to). A tag can be moved to different code after we reviewed it; a SHA
+# cannot — and these steps run with our AWS role. Some actions no longer maintain a
+# floating major tag at all (astral-sh/setup-uv has no `v10`). Dependabot
+# (.github/dependabot.yml) proposes the bumps, SHA and comment together.
 
 name: ci
 
@@ -36,10 +42,10 @@ jobs:
   test:
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Same uv version as mise.toml and the Dockerfile builder — one lockfile, one reader.
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           version: "0.12.7"
           enable-cache: true
@@ -55,16 +61,19 @@ jobs:
         working-directory: backend
         run: uv run --locked pytest -q
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Frontend build
+      # Type-check BEFORE building: `astro build` transpiles with esbuild, which strips
+      # types without checking them — a build can be green with broken types.
+      - name: Frontend type-check + build
         working-directory: frontend
         run: |
           npm ci
+          npm run check
           npm run build
 
   # ----------------------------------------------------------- build+push
@@ -77,7 +86,7 @@ jobs:
       image_tag: ${{ steps.meta.outputs.tag }}
       registry: ${{ steps.ecr.outputs.registry }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Compute image tag
         id: meta
@@ -89,7 +98,7 @@ jobs:
           echo "Image tag: ${tag}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Assume AWS role via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -97,9 +106,9 @@ jobs:
       # Exchanges the temporary AWS credentials for a 12 h docker login token.
       - name: Login to ECR
         id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # Same Dockerfile as `make build` locally. Native arm64 runner → no QEMU.
       # cache-from/to gha: layer cache between runs, so only the code layer rebuilds.
@@ -107,7 +116,7 @@ jobs:
       # then push. Pushing an image nobody has ever started is how a typo in CMD
       # reaches the registry with a green pipeline.
       - name: Build (load locally)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: backend
           platforms: linux/arm64
@@ -133,7 +142,7 @@ jobs:
           echo "::error::/healthz did not answer within 15s"; docker logs api; exit 1
 
       - name: Push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: backend
           platforms: linux/arm64
@@ -150,9 +159,9 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
@@ -165,7 +174,7 @@ jobs:
           npm run build
 
       - name: Assume AWS role via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -192,16 +201,16 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           version: "0.12.7"
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
 
       - name: Assume AWS role via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
