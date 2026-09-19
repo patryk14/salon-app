@@ -71,6 +71,9 @@ export default function ClientsView() {
   const [visitId, setVisitId] = useState('');
   const [takenOn, setTakenOn] = useState('');
   const [note, setNote] = useState('');
+  // inline edit of the profile's basic data
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({ first_name: '', last_name: '', phone: '', email: '' });
   // merge (admin): fold this duplicate into the real profile
   const [mergeQ, setMergeQ] = useState('');
   const [mergeHits, setMergeHits] = useState<Client[]>([]);
@@ -146,9 +149,47 @@ export default function ClientsView() {
     }
   }
 
+  function startEdit() {
+    if (!client) return;
+    setForm({
+      first_name: client.first_name,
+      // "?" is the import placeholder for a missing surname — don't make her retype over it
+      last_name: client.last_name === '?' ? '' : client.last_name,
+      phone: client.phone ?? '',
+      email: client.email ?? '',
+    });
+    setEditing(true);
+  }
+
+  async function saveEdit() {
+    if (!client) return;
+    if (!form.first_name.trim() || !form.last_name.trim()) {
+      setError('Imię i nazwisko są wymagane.');
+      return;
+    }
+    try {
+      const updated = await apiFetch<Client>(`/clients/${client.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          first_name: form.first_name.trim(),
+          last_name: form.last_name.trim(),
+          phone: form.phone.trim() || null,
+          email: form.email.trim() || null,
+        }),
+      });
+      setClient(updated);
+      setResults((rs) => rs.map((r) => (r.id === updated.id ? updated : r)));
+      setEditing(false);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function open(c: Client) {
     setError(null);
     setMergeQ('');
+    setEditing(false);
     setClient(c);
     setPhotos([]);
     setVisits([]);
@@ -302,14 +343,47 @@ export default function ClientsView() {
         {!client && <p class="muted">Wybierz klientkę z listy.</p>}
         {client && (
           <div>
-            <div class="cat-head">
-              <h2>
-                {client.first_name} {client.last_name}
-              </h2>
-              <span class="muted small">
-                {[client.phone, client.email].filter(Boolean).join(' · ') || 'brak kontaktu'}
-              </span>
-            </div>
+            {!editing ? (
+              <div class="cat-head">
+                <h2>
+                  {client.first_name} {client.last_name}
+                </h2>
+                <span class="muted small">
+                  {[client.phone, client.email].filter(Boolean).join(' · ') || 'brak kontaktu'}{' '}
+                  <button class="link" onClick={startEdit}>
+                    Edytuj dane
+                  </button>
+                </span>
+              </div>
+            ) : (
+              <div class="card edit">
+                {(
+                  [
+                    ['first_name', 'Imię'],
+                    ['last_name', 'Nazwisko'],
+                    ['phone', 'Telefon'],
+                    ['email', 'E-mail'],
+                  ] as const
+                ).map(([key, label]) => (
+                  <label class="fld" key={key}>
+                    <span class="lbl">{label}</span>
+                    <input
+                      type={key === 'email' ? 'email' : 'text'}
+                      value={form[key]}
+                      onInput={(e) => setForm({ ...form, [key]: (e.target as HTMLInputElement).value })}
+                    />
+                  </label>
+                ))}
+                <div class="edit-actions">
+                  <button class="btn primary sm" onClick={saveEdit}>
+                    Zapisz
+                  </button>
+                  <button class="btn sm" onClick={() => setEditing(false)}>
+                    Anuluj
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div class="card">
               <label class="chk strong">

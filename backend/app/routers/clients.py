@@ -106,6 +106,11 @@ def update_client(client_id: int, payload: ClientUpdate, db: DbDep) -> ClientOut
     return ClientOut.model_validate(client)
 
 
+def _is_placeholder(value: str | None) -> bool:
+    """Imports write "?" when Booksy/xlsx carried no surname."""
+    return (value or "").strip() in ("", "?")
+
+
 def _purge_client_storage(db: Session, client: Client) -> None:
     """Delete every S3 object behind this client's photos, so no bytes are
     orphaned in the bucket when her rows go away."""
@@ -173,6 +178,10 @@ def merge_client(client_id: int, target_id: int, db: DbDep) -> ClientOut:
         # Both came from Booksy: the survivor keeps its own id, and the duplicate's
         # id is tombstoned — otherwise the next backfill would recreate it.
         db.add(ClientTombstone(booksy_customer_id=booksy_id, reason="merged"))
+    # The better NAME survives, whichever side it is on: a "Karolina Sobas" / "?"
+    # import artifact must not outlive a proper "Karolina" / "Sobas".
+    if _is_placeholder(target.last_name) and not _is_placeholder(source.last_name):
+        target.first_name, target.last_name = source.first_name, source.last_name
     for field in ("phone", "email", "notes"):
         if not getattr(target, field) and getattr(source, field):
             setattr(target, field, getattr(source, field))

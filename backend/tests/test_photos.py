@@ -297,3 +297,18 @@ def test_pull_customers_splits_full_name_and_matches_existing(monkeypatch) -> No
     assert (res["created"], res["updated"]) == (0, 1)  # matched, no duplicate
     rows = db.scalars(select(Client)).all()
     assert len(rows) == 1 and rows[0].booksy_customer_id == 46672185
+
+
+def test_merge_keeps_the_better_name(db_client: TestClient, fake_storage) -> None:
+    """Merging the proper profile INTO the Booksy-shaped one must not leave the
+    survivor called "Karolina Sobas ?"."""
+    real = _client(db_client, "Karolina", "Sobas")
+    dup = _client(db_client, "Karolina Sobas", "?")
+    body = db_client.post(f"/clients/{real}/merge-into/{dup}").json()
+    assert (body["first_name"], body["last_name"]) == ("Karolina", "Sobas")
+
+    # …and a proper target name is never overwritten by the duplicate's
+    a = _client(db_client, "Anna", "Nowak")
+    b = _client(db_client, "Ania", "Nowak-Kowalska")
+    body = db_client.post(f"/clients/{b}/merge-into/{a}").json()
+    assert (body["first_name"], body["last_name"]) == ("Anna", "Nowak")

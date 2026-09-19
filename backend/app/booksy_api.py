@@ -156,6 +156,13 @@ def pull_customers(db: Session, per_page: int = 100, max_pages: int = 60) -> dic
                 # Sobas" / ""). Split it, or the name match below misses the existing
                 # row and a duplicate "Karolina Sobas / ?" profile is created.
                 first, last = first.rsplit(" ", 1)
+                # …and it may be "Last First": if only the swapped order matches an
+                # unlinked existing profile, that is the person.
+                if (first.lower(), last.lower()) not in by_name and any(
+                    c.booksy_customer_id is None
+                    for c in by_name.get((last.lower(), first.lower()), [])
+                ):
+                    first, last = last, first
             if bid and bid in tombstoned:  # RODO-erased → do not recreate or re-link
                 continue
             total += 1

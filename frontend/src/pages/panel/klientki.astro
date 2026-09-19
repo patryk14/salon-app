@@ -84,6 +84,12 @@ import PanelNav from '../../components/PanelNav.astro';
       figure img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: cover; background: var(--field); }
       figcaption { display: flex; flex-direction: column; gap: .2rem; padding: .5rem .6rem; font-size: .85rem; }
 
+      .link { color: var(--accent); }
+      .edit { display: flex; flex-wrap: wrap; gap: .6rem; align-items: flex-end; }
+      .fld { display: flex; flex-direction: column; gap: .2rem; flex: 1; min-width: 9rem; }
+      .fld .lbl { font-size: .68rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+      .fld input { width: 100%; }
+      .edit-actions { display: flex; gap: .4rem; }
       .btn.sm { padding: .3rem .7rem; font-size: .82rem; }
       .merge { margin-top: 2rem; }
       .merge input { width: 100%; max-width: 24rem; margin-top: .5rem; }
