@@ -287,7 +287,8 @@ export default function ClientsView() {
     const name = `${client.first_name} ${client.last_name}`;
     const typed = prompt(
       `RODO — trwałe usunięcie WSZYSTKICH danych klientki (profil, wizyty, zdjęcia).\n` +
-        `Nie zostanie też ponownie zaimportowana z Booksy.\n\nAby potwierdzić, wpisz: ${name}`,
+        `Nie zostanie też ponownie zaimportowana z Booksy. Otwarte zamówienia ze sklepu zostaną anulowane.\n` +
+        `WAŻNE: usuń ją także w Booksy — to osobny system i stamtąd jej dane nie znikną same.\n\nAby potwierdzić, wpisz: ${name}`,
     );
     if (typed?.trim() !== name) return;
     try {

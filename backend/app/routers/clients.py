@@ -12,7 +12,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app import storage
-from app.auth import require_role
+from app.auth import UserDep, require_role
 from app.deps import get_db
 from app.derivation import month_bounds
 from app.models import (
@@ -25,10 +25,14 @@ from app.models import (
     Invite,
     Package,
     Photo,
+    ProductSale,
+    RegisterTxn,
+    ShopOrder,
     UserAccount,
     Visit,
     utcnow,
 )
+from app.reconciliation import norm_name
 from app.schemas import (
     ClientCreate,
     ClientOut,
@@ -39,6 +43,7 @@ from app.schemas import (
     VisitOut,
     VisitUpdate,
 )
+from app.shop import actor_name, drop_client_orders
 
 router = APIRouter(prefix="/clients", tags=["clients"], dependencies=[require_role("staff")])
 visits_router = APIRouter(prefix="/visits", tags=["visits"], dependencies=[require_role("staff")])
@@ -123,22 +128,37 @@ def _purge_client_storage(db: Session, client: Client) -> None:
 
 
 @router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_client(client_id: int, db: DbDep) -> None:
+def delete_client(client_id: int, user: UserDep, db: DbDep) -> None:
     """Ordinary delete (a duplicate/mistaken row): cascades to visits and photo
     rows and clears the S3 objects too — but leaves NO tombstone, so a Booksy
     backfill may legitimately recreate the client. RODO erasure is /erase."""
     client = _get_client_or_404(db, client_id)
     _purge_client_storage(db, client)
+    drop_client_orders(db, client.id, sub=user.sub, name=actor_name(db, user))
     db.delete(client)
 
 
 @router.post("/{client_id}/erase", dependencies=[require_role("admin")])
-def erase_client(client_id: int, db: DbDep) -> dict:
+def erase_client(client_id: int, user: UserDep, db: DbDep) -> dict:
     """RODO right-to-be-forgotten (admin only): delete the client's S3 photos and
     all her rows, and — if she came from Booksy — leave a tombstone so the next
-    `pull_customers` backfill does not silently recreate her."""
+    `pull_customers` backfill does not silently recreate her.
+
+    Two things do NOT hang off the client row and need explicit care: the stock her
+    open orders reserved (released here, or it vanishes from the shelf), and her
+    name inside the kept Booksy till rows (register_txns — scrubbed here). Booksy
+    itself stays the salon's separate system of record: she must be deleted there
+    too, or a later sync of those dates brings the name back."""
     client = _get_client_or_404(db, client_id)
     _purge_client_storage(db, client)
+    drop_client_orders(db, client.id, sub=user.sub, name=actor_name(db, user))
+    names = {
+        norm_name(f"{client.first_name} {client.last_name}"),
+        norm_name(f"{client.last_name} {client.first_name}"),
+    }
+    for txn in db.scalars(select(RegisterTxn).where(RegisterTxn.client_name.is_not(None))):
+        if norm_name(txn.client_name) in names:
+            txn.client_name = None
     tombstoned = client.booksy_customer_id is not None
     if tombstoned and db.get(ClientTombstone, client.booksy_customer_id) is None:
         db.add(ClientTombstone(booksy_customer_id=client.booksy_customer_id))
@@ -197,7 +217,7 @@ def merge_client(client_id: int, target_id: int, db: DbDep) -> ClientOut:
             .values(status="archived")
         )
 
-    for model in (Visit, Photo, Package, Invite, UserAccount, BeautyPlan):
+    for model in (Visit, Photo, Package, Invite, UserAccount, BeautyPlan, ShopOrder, ProductSale):
         db.execute(update(model).where(model.client_id == source.id).values(client_id=target.id))
 
     # Fill the survivor's gaps. The Booksy id is unique, so it must leave the

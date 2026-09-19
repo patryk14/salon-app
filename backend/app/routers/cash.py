@@ -6,11 +6,12 @@ report. The row only persists what a person types: Booksy cash and the fiscal
 register total. 'Suma gotówki w kasie' = unregistered + Booksy.
 """
 
-from datetime import date
+from dataclasses import dataclass
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -18,18 +19,21 @@ from app.auth import UserDep, require_role
 from app.deps import get_db
 from app.derivation import month_bounds
 from app.models import LedgerEntry, SalonDay
+from app.pnl import month_shop_sales
 from app.reconciliation import (
     Txn,
+    booksy_till_by_day,
     day_txns,
     find_candidates,
     month_days,
+    shop_fiscal_by_day,
     status_of,
-    txn_count,
 )
 from app.schemas import (
     DayReconciliationOut,
     MonthlyKasaOut,
     MonthReconDayOut,
+    ReconExplainIn,
     ReconTxnOut,
     SalonDayIn,
     SalonDayOut,
@@ -58,6 +62,7 @@ def salon_month_summary(db: DbDep, month: MonthQuery) -> MonthlyKasaOut:
     unreg = total(
         LedgerEntry.amount_pln, LedgerEntry.entry_date >= start, LedgerEntry.entry_date < end
     )
+    shop = month_shop_sales(db, month)
     return MonthlyKasaOut(
         year_month=month,
         fiscal_register=fiscal,
@@ -65,31 +70,78 @@ def salon_month_summary(db: DbDep, month: MonthQuery) -> MonthlyKasaOut:
         card=fiscal - booksy,
         unregistered_cash=unreg,
         cash_total=booksy + unreg,
-        money_total=fiscal + unreg,
+        shop_sales=shop,
+        money_total=fiscal + unreg + shop,
     )
 
 
-def _gap(row: SalonDay | None) -> Decimal | None:
-    if row is None or row.fiscal_printer_total is None:
-        return None
-    return row.fiscal_register - row.fiscal_printer_total
+ZERO = Decimal("0")
+
+
+@dataclass(frozen=True)
+class _DayFigures:
+    """One day's reconciliation inputs. `till` comes from the KEPT Booksy
+    transactions when we have them (has_till / synced); the hand-editable
+    salon_days.fiscal_register is only a fallback for days never synced."""
+
+    till: Decimal
+    shop: Decimal
+    printer: Decimal | None
+    has_till: bool
+    explained_gap: Decimal | None
+
+    @property
+    def gap(self) -> Decimal | None:
+        """expected − printed, where expected = Booksy's till + the app's shop sales."""
+        return None if self.printer is None else self.till + self.shop - self.printer
+
+    @property
+    def status(self) -> str:
+        return status_of(self.printer, self.gap, self.explained_gap, self.has_till)
+
+
+def _figures(row: SalonDay | None, synced_till: Decimal | None, shop: Decimal) -> _DayFigures:
+    typed_till = row.fiscal_register if row else ZERO
+    return _DayFigures(
+        till=synced_till if synced_till is not None else typed_till,
+        shop=shop,
+        printer=row.fiscal_printer_total if row else None,
+        # a typed non-zero till also counts: the salon may close a day by hand
+        has_till=synced_till is not None or typed_till > 0 or shop > 0,
+        explained_gap=row.recon_explained_gap if row and row.recon_explained else None,
+    )
+
+
+def _day_figures(db: Session, day: date, row: SalonDay | None) -> _DayFigures:
+    nxt = day + timedelta(days=1)
+    return _figures(
+        row,
+        booksy_till_by_day(db, day, nxt).get(day),
+        shop_fiscal_by_day(db, day, nxt).get(day, ZERO),
+    )
 
 
 @salon_days.get("/reconciliation")
 def month_reconciliation(db: DbDep, month: MonthQuery) -> list[MonthReconDayOut]:
-    """Every day of the month that has a till: Booksy vs the fiscal printer.
-    Registered BEFORE /{day} (a literal path must not be parsed as a date)."""
+    """Every day of the month that has a till: expected takings vs the fiscal
+    printer. Registered BEFORE /{day} (a literal path must not be parsed as a date)."""
     start, end = month_bounds(month)
-    return [
-        MonthReconDayOut(
-            day=r.day,
-            status=status_of(r.fiscal_printer_total, _gap(r), r.recon_explained),
-            booksy_till=r.fiscal_register,
-            fiscal_printer_total=r.fiscal_printer_total,
-            gap=_gap(r),
+    shop = shop_fiscal_by_day(db, start, end)
+    tills = booksy_till_by_day(db, start, end)
+    out = []
+    for r in month_days(db, start, end):
+        f = _figures(r, tills.get(r.day), shop.get(r.day, ZERO))
+        out.append(
+            MonthReconDayOut(
+                day=r.day,
+                status=f.status,
+                booksy_till=f.till,
+                shop_sales=f.shop,
+                fiscal_printer_total=f.printer,
+                gap=f.gap,
+            )
         )
-        for r in month_days(db, start, end)
-    ]
+    return out
 
 
 def _txn_out(t: Txn) -> ReconTxnOut:
@@ -103,33 +155,54 @@ def _txn_out(t: Txn) -> ReconTxnOut:
     )
 
 
-@salon_days.get("/{day}/reconciliation")
-def day_reconciliation(day: date, user: UserDep, db: DbDep) -> DayReconciliationOut:
-    """Booksy's till vs the fiscal printer for one day. A positive gap means
-    something was settled in Booksy but never rung up — the candidates are the
-    Booksy transactions whose amount equals that gap, with the performer.
-
-    Everyone at the desk sees THAT the day doesn't add up; only an admin sees the
-    transactions and who performed them — this page is shared by the whole team
-    and a candidate list points at a colleague."""
-    row = db.scalar(select(SalonDay).where(SalonDay.day == day))
-    gap = _gap(row)
-    txns = day_txns(db, day) if "admin" in user.groups else []
+def _recon_out(
+    db: Session, day: date, row: SalonDay | None, is_admin: bool
+) -> DayReconciliationOut:
+    f = _day_figures(db, day, row)
+    txns = day_txns(db, day) if is_admin else []
     return DayReconciliationOut(
         day=day,
-        status=status_of(
-            row.fiscal_printer_total if row else None, gap, row.recon_explained if row else False
-        ),
-        booksy_till=row.fiscal_register if row else Decimal("0"),
-        fiscal_printer_total=row.fiscal_printer_total if row else None,
-        gap=gap,
-        note=row.note if row else None,
-        synced=txn_count(db, day) > 0,
-        candidates=[
-            [_txn_out(t) for t in group] for group in find_candidates(txns, gap or Decimal(0))
-        ],
+        status=f.status,
+        booksy_till=f.till,
+        shop_sales=f.shop,
+        fiscal_printer_total=f.printer,
+        gap=f.gap,
+        # the explanation may name a colleague → admin eyes only
+        recon_note=row.recon_note if row and is_admin else None,
+        synced=f.has_till,
+        candidates=[[_txn_out(t) for t in g] for g in find_candidates(txns, f.gap or ZERO)],
         transactions=[_txn_out(t) for t in txns],
     )
+
+
+@salon_days.get("/{day}/reconciliation")
+def day_reconciliation(day: date, user: UserDep, db: DbDep) -> DayReconciliationOut:
+    """Expected takings vs the fiscal printer for one day. A positive gap means
+    something was settled in Booksy (or sold in the shop) but never rung up — the
+    candidates are the transactions whose amount equals that gap, with the performer.
+
+    Everyone at the desk sees THAT the day doesn't add up; only an admin sees the
+    transactions, the names and the explanation — this page is shared by the whole
+    team and a candidate list points at a colleague."""
+    row = db.scalar(select(SalonDay).where(SalonDay.day == day))
+    return _recon_out(db, day, row, "admin" in user.groups)
+
+
+@salon_days.post("/{day}/reconciliation/explain", dependencies=[require_role("admin")])
+def explain_gap(day: date, payload: ReconExplainIn, db: DbDep) -> DayReconciliationOut:
+    """Admin only: accept (or re-open) a day's gap. The explanation is pinned to
+    the CURRENT gap amount — if the gap later changes, the day is flagged again."""
+    row = db.scalar(select(SalonDay).where(SalonDay.day == day))
+    gap = _day_figures(db, day, row).gap
+    if row is None or gap is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="brak raportu dobowego — nie ma czego wyjaśniać"
+        )
+    row.recon_explained = payload.explained
+    row.recon_explained_gap = gap if payload.explained else None
+    row.recon_note = (payload.note or "").strip() or None if payload.explained else None
+    db.flush()
+    return _recon_out(db, day, row, True)
 
 
 def _unregistered(db: Session, day: date) -> Decimal:
@@ -153,7 +226,6 @@ def _out(day: date, row: SalonDay | None, unregistered: Decimal) -> SalonDayOut:
         cash_in_register=unregistered + booksy,
         note=row.note if row else None,
         fiscal_printer_total=row.fiscal_printer_total if row else None,
-        recon_explained=row.recon_explained if row else False,
     )
 
 
@@ -173,11 +245,12 @@ def upsert_salon_day(day: date, payload: SalonDayIn, db: DbDep) -> SalonDayOut:
         db.add(row)
     row.booksy_cash = payload.booksy_cash
     row.fiscal_register = payload.fiscal_register
-    row.note = payload.note
+    # Only what was actually sent: the day-close form doesn't know about the note
+    # or the printer total of other screens, and must not blank them.
     sent = payload.model_fields_set
+    if "note" in sent:
+        row.note = payload.note
     if "fiscal_printer_total" in sent:
         row.fiscal_printer_total = payload.fiscal_printer_total
-    if "recon_explained" in sent and payload.recon_explained is not None:
-        row.recon_explained = payload.recon_explained
     db.flush()
     return _out(day, row, _unregistered(db, day))

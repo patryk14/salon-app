@@ -239,6 +239,7 @@ def _staff_rows(db: Session, year_month: str) -> tuple[list[StaffCostRow], Decim
         monthly_cash,
         monthly_hours,
         monthly_notebook_services,
+        monthly_shop_sales,
     )
     from app.models import Employee
     from app.pnl import standard_monthly_hours
@@ -259,7 +260,12 @@ def _staff_rows(db: Session, year_month: str) -> tuple[list[StaffCostRow], Decim
         )
         logged = monthly_hours(db, e.id, year_month)
         # commission is independent of hours (services + sales only)
-        result = compute_settlement(SettlementInput(booksy_services=revenue), scheme)
+        result = compute_settlement(
+            SettlementInput(
+                booksy_services=revenue, shop_sales=monthly_shop_sales(db, e.id, year_month)
+            ),
+            scheme,
+        )
         commission = result.services_commission + result.sales_commission
         if e.pay_type == "uop_plus_extra":  # Klaudia: fixed salary + any extra logged hours
             hours = logged

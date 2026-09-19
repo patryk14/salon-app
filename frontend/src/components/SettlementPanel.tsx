@@ -16,6 +16,7 @@ interface Line {
   employee_id: number;
   booksy_services: string;
   booksy_sales: string;
+  shop_sales: string;
   notebook_services: string;
   cash_services: string;
   hours: string;
@@ -41,12 +42,14 @@ interface Kasa {
   card: string;
   unregistered_cash: string;
   cash_total: string;
+  shop_sales?: string;
   money_total: string;
 }
 
 const INPUT_FIELDS = [
   ['booksy_services', 'Booksy usł.'],
   ['booksy_sales', 'Sprzedaż'],
+  ['shop_sales', 'Sklep'],
   ['notebook_services', 'Zeszyt'],
   ['cash_services', 'Gotówka'],
   ['hours', 'Godziny'],
@@ -159,6 +162,7 @@ export default function SettlementPanel() {
     const payload: Record<string, string> = {
       booksy_services: existing?.booksy_services ?? '0',
       booksy_sales: existing?.booksy_sales ?? '0',
+      shop_sales: existing?.shop_sales ?? '0',
       notebook_services: existing?.notebook_services ?? '0',
       cash_services: existing?.cash_services ?? '0',
       hours: existing?.hours ?? '0',
@@ -426,10 +430,19 @@ export default function SettlementPanel() {
               <span class="kv">{pln(kasa.cash_total)} zł</span>
               <span class="kh">Booksy + nie wbita</span>
             </div>
+            {Number(kasa.shop_sales ?? 0) > 0 && (
+              <div class="kf">
+                <span class="kl">Sklep (karta + gotówka)</span>
+                <span class="kv">{pln(kasa.shop_sales ?? '0')} zł</span>
+                <span class="kh">sprzedaż w appce, poza Booksy</span>
+              </div>
+            )}
             <div class="kf hi">
               <span class="kl">Prawdziwa suma pieniędzy</span>
               <span class="kv">{pln(kasa.money_total)} zł</span>
-              <span class="kh">fiskalna + nie wbita</span>
+              <span class="kh">
+                fiskalna + nie wbita{Number(kasa.shop_sales ?? 0) > 0 ? ' + sklep' : ''}
+              </span>
             </div>
           </div>
         </div>

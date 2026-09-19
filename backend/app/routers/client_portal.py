@@ -26,23 +26,31 @@ from app.models import (
     Package,
     PackageRedemption,
     Photo,
+    Product,
     Service,
+    ShopOrder,
+    ShopOrderItem,
     UserAccount,
     Visit,
     Voucher,
 )
 from app.routers.care import active_plan
 from app.routers.photos import photo_response
+from app.routers.shop import order_out
 from app.schemas import (
     AftercareOut,
     BeautyPlanOut,
     ClientMeOut,
     ClientPackageOut,
+    ClientProductOut,
     ClientVoucherOut,
     PhotoOut,
     RebookingSuggestion,
+    ShopOrderIn,
+    ShopOrderOut,
     VisitBrowseOut,
 )
+from app.shop import CLIENT_ACTOR, LOW_STOCK, claim_order, move_stock, release_order_stock
 
 MonthQuery = Annotated[str, Query(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")]
 
@@ -258,6 +266,87 @@ def my_photo_content(photo_id: int, client: ClientDep, db: DbDep) -> Response:
     if photo is None or photo.client_id != client.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="photo not found")
     return photo_response(photo)
+
+
+@client_portal.get("/shop/products")
+def shop_catalog(db: DbDep) -> list[ClientProductOut]:
+    """The shop as a client sees it: active products, price, and whether she can
+    order — never the exact stock figure."""
+    rows = db.scalars(select(Product).where(Product.active.is_(True)).order_by(Product.name))
+    return [
+        ClientProductOut(
+            id=p.id,
+            name=p.name,
+            brand=p.brand,
+            description=p.description,
+            price_pln=p.price_pln,
+            available=p.stock_qty > 0,
+            low_stock=0 < p.stock_qty <= LOW_STOCK,
+        )
+        for p in rows
+    ]
+
+
+@client_portal.get("/me/orders")
+def my_orders(client: ClientDep, db: DbDep) -> list[ShopOrderOut]:
+    rows = db.scalars(
+        select(ShopOrder).where(ShopOrder.client_id == client.id).order_by(ShopOrder.id.desc())
+    )
+    return [order_out(db, o) for o in rows]
+
+
+@client_portal.post("/me/orders", status_code=status.HTTP_201_CREATED)
+def place_order(payload: ShopOrderIn, client: ClientDep, db: DbDep) -> ShopOrderOut:
+    """Order for pickup at the salon (paid at the desk). Reserves the stock now,
+    so what she ordered is really waiting for her."""
+    wanted: dict[int, int] = {}
+    for item in payload.items:
+        wanted[item.product_id] = wanted.get(item.product_id, 0) + item.qty
+    order = ShopOrder(client_id=client.id, note=(payload.note or "").strip() or None)
+    db.add(order)
+    db.flush()
+    for product_id, qty in wanted.items():
+        product = db.get(Product, product_id)
+        if product is None or not product.active:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="produkt niedostępny")
+        move_stock(
+            db,
+            product,
+            -qty,
+            "order",
+            sub=None,  # no personal data in the shelf audit — it outlives the client row
+            name=CLIENT_ACTOR,
+            ref=f"order:{order.id}",
+            reveal_stock=False,  # "not enough", never "there are 2"
+        )
+        db.add(
+            ShopOrderItem(
+                order_id=order.id,
+                product_id=product.id,
+                product_name=product.name,
+                qty=qty,
+                price_at_order=product.price_pln,
+            )
+        )
+    db.flush()
+    db.refresh(order)
+    return order_out(db, order)
+
+
+@client_portal.post("/me/orders/{order_id}/cancel")
+def cancel_my_order(order_id: int, client: ClientDep, db: DbDep) -> ShopOrderOut:
+    """I can withdraw an order the salon hasn't prepared yet. Someone else's order
+    id is a plain 404."""
+    order = db.get(ShopOrder, order_id)
+    if order is None or order.client_id != client.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="order not found")
+    if order.status != "placed":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="zamówienie jest już przygotowane — zadzwoń do salonu"
+        )
+    order = claim_order(db, order_id, ("placed",), "cancelled")  # atomic vs a staff pickup
+    release_order_stock(db, order, sub=None, name=CLIENT_ACTOR)
+    return order_out(db, order)
 
 
 @client_portal.get("/me/beauty-plan")

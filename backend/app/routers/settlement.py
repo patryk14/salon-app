@@ -27,6 +27,7 @@ from app.derivation import (
     monthly_cash,
     monthly_hours,
     monthly_notebook_services,
+    monthly_shop_sales,
     reconcile_notebook,
     unmatched_staff_names,
 )
@@ -218,6 +219,16 @@ def upsert_line(
     if emp is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="employee not found")
 
+    line = db.scalar(
+        select(SettlementLine).where(
+            SettlementLine.period_id == period.id, SettlementLine.employee_id == employee_id
+        )
+    )
+    # shop_sales is DERIVED (never typed in the panel). A client that edits one
+    # cell and resends the line without it must not reset it to the schema's 0.
+    if "shop_sales" not in payload.model_fields_set and line is not None:
+        payload = payload.model_copy(update={"shop_sales": line.shop_sales})
+
     scheme = _scheme_for(emp)
     inp = SettlementInput(
         booksy_services=payload.booksy_services,
@@ -226,15 +237,11 @@ def upsert_line(
         cash_services=payload.cash_services,
         notebook_sales=payload.notebook_sales,
         cash_sales=payload.cash_sales,
+        shop_sales=payload.shop_sales,
         hours=payload.hours,
     )
     result = compute_settlement(inp, scheme)
 
-    line = db.scalar(
-        select(SettlementLine).where(
-            SettlementLine.period_id == period.id, SettlementLine.employee_id == employee_id
-        )
-    )
     if line is None:
         line = SettlementLine(period_id=period.id, employee_id=employee_id)
         db.add(line)
@@ -247,6 +254,7 @@ def upsert_line(
         "cash_services",
         "notebook_sales",
         "cash_sales",
+        "shop_sales",
         "hours",
     ):
         setattr(line, f, getattr(payload, f))
@@ -272,13 +280,14 @@ def upsert_line(
 
 def _derive_payload(db: Session, employee_id: int, year_month: str, line) -> SettlementInputIn:
     """Assemble a line's inputs from the daily sources. Derived: hours (F3),
-    cash_services (F3), booksy_services (imported visits). NOT derived yet
+    cash_services (F3), booksy_services (imported visits), shop_sales (F11). NOT derived yet
     (kept from any manual entry): booksy_sales (products, F5), notebook (F4)."""
     return SettlementInputIn(
         booksy_services=monthly_booksy_services(db, employee_id, year_month),
         cash_services=monthly_cash(db, employee_id, year_month),
         notebook_services=monthly_notebook_services(db, employee_id, year_month),
         hours=monthly_hours(db, employee_id, year_month),
+        shop_sales=monthly_shop_sales(db, employee_id, year_month),
         # not yet derivable — preserve whatever was entered by hand:
         booksy_sales=line.booksy_sales if line else Decimal("0"),
         notebook_sales=line.notebook_sales if line else Decimal("0"),

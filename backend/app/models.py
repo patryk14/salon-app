@@ -240,6 +240,8 @@ class SettlementLine(TimestampMixin, Base):
     cash_services: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
     notebook_sales: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
     cash_sales: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
+    # Product sales recorded in the app's shop (F11) — derived, like the services.
+    shop_sales: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
     hours: Mapped[Decimal] = mapped_column(Numeric(7, 2), default=Decimal("0"))
 
     # frozen scheme (what it was computed AGAINST — audit + history safety)
@@ -498,8 +500,14 @@ class SalonDay(TimestampMixin, Base):
     # that was settled in Booksy but never rung up on the register. NULL = not
     # entered yet. Never overwritten by a Booksy sync.
     fiscal_printer_total: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
-    # A gap that was looked into and is legitimate (the reason goes in `note`).
+    # A gap that was looked into and is legitimate. The explanation is tied to the
+    # AMOUNT it explained (recon_explained_gap): if the gap later changes — a
+    # re-sync, a re-typed report, a voided sale — the day is flagged again instead
+    # of staying green. recon_note may name a colleague, so it is admin-only and
+    # kept apart from the shared day `note`.
     recon_explained: Mapped[bool] = mapped_column(default=False)
+    recon_explained_gap: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    recon_note: Mapped[str | None] = mapped_column(Text)
     note: Mapped[str | None] = mapped_column(Text)
 
 
@@ -911,3 +919,110 @@ class BeautyPlanStep(TimestampMixin, Base):
     plan: Mapped[BeautyPlan] = relationship(back_populates="steps")
 
     __table_args__ = (Index("ix_beauty_plan_steps_plan", "plan_id"),)
+
+
+# ---------------------------------------------------------------- shop (F11)
+class Product(TimestampMixin, Base):
+    """A retail product (home-care cosmetics). Staff add, edit and retire them.
+    `stock_qty` is a running counter kept in step with stock_movements — every
+    change to it goes through a movement row, so the count is always explainable."""
+
+    __tablename__ = "products"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), unique=True)
+    brand: Mapped[str | None] = mapped_column(String(100))
+    description: Mapped[str | None] = mapped_column(Text)
+    price_pln: Mapped[Decimal] = mapped_column(Numeric(8, 2))
+    stock_qty: Mapped[int] = mapped_column(default=0)
+    # "Removed from the shop" = inactive: hidden from clients and from the sale
+    # form, but its sales history (commission!) stays intact.
+    active: Mapped[bool] = mapped_column(default=True)
+    created_by: Mapped[str | None] = mapped_column(String(255))
+
+    # Last line of defence behind move_stock's guarded UPDATE: the shelf can't go
+    # negative even if some future code path forgets the guard.
+    __table_args__ = (CheckConstraint("stock_qty >= 0", name="ck_products_stock_nonneg"),)
+
+
+class StockMovement(TimestampMixin, Base):
+    """Why the stock changed: delivery (+), sale (−), order reservation (−) /
+    release (+), correction (±). Who and when — the audit of the shelf."""
+
+    __tablename__ = "stock_movements"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(
+        ForeignKey("products.id", ondelete="CASCADE"), nullable=False
+    )
+    delta: Mapped[int] = mapped_column()
+    reason: Mapped[str] = mapped_column(String(20))
+    ref: Mapped[str | None] = mapped_column(String(40))  # "sale:12" / "order:7"
+    note: Mapped[str | None] = mapped_column(Text)
+    created_by_sub: Mapped[str | None] = mapped_column(String(255))
+    created_by_name: Mapped[str | None] = mapped_column(String(200))
+
+    __table_args__ = (Index("ix_stock_movements_product", "product_id"),)
+
+
+class ShopOrder(TimestampMixin, Base):
+    """A client's pickup order from her portal — no online payment; she pays at
+    the desk. Placing it reserves the stock; cancelling releases it; pickup turns
+    the items into product sales (credited to whoever hands them over)."""
+
+    __tablename__ = "shop_orders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    client_id: Mapped[int] = mapped_column(
+        ForeignKey("clients.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(12), default="placed")
+    note: Mapped[str | None] = mapped_column(Text)
+    handled_by_name: Mapped[str | None] = mapped_column(String(200))
+
+    items: Mapped[list["ShopOrderItem"]] = relationship(
+        back_populates="order", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+    __table_args__ = (Index("ix_shop_orders_client", "client_id"),)
+
+
+class ShopOrderItem(TimestampMixin, Base):
+    __tablename__ = "shop_order_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(
+        ForeignKey("shop_orders.id", ondelete="CASCADE"), nullable=False
+    )
+    product_id: Mapped[int | None] = mapped_column(ForeignKey("products.id", ondelete="SET NULL"))
+    product_name: Mapped[str] = mapped_column(String(200))  # frozen at order time
+    qty: Mapped[int] = mapped_column()
+    price_at_order: Mapped[Decimal] = mapped_column(Numeric(8, 2))
+
+    order: Mapped[ShopOrder] = relationship(back_populates="items")
+
+
+class ProductSale(TimestampMixin, Base):
+    """One product sold. employee_id is who gets the SALES commission (the 10%
+    once a month's sales reach 1500 zł); NULL = a sale nobody is paid for (the
+    owner's). Name and price are frozen so history survives product edits."""
+
+    __tablename__ = "product_sales"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int | None] = mapped_column(ForeignKey("products.id", ondelete="SET NULL"))
+    product_name: Mapped[str] = mapped_column(String(200))
+    qty: Mapped[int] = mapped_column()
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(8, 2))
+    total: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    sold_on: Mapped[date] = mapped_column(Date, nullable=False)
+    payment_method: Mapped[str] = mapped_column(String(12), default="karta")
+    employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id", ondelete="SET NULL"))
+    client_id: Mapped[int | None] = mapped_column(ForeignKey("clients.id", ondelete="SET NULL"))
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("shop_orders.id", ondelete="SET NULL"))
+    created_by_sub: Mapped[str | None] = mapped_column(String(255))
+
+    __table_args__ = (
+        Index("ix_product_sales_day", "sold_on"),
+        Index("ix_product_sales_employee", "employee_id", "sold_on"),
+    )

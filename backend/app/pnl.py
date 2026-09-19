@@ -2,7 +2,8 @@
 
 Two of the three inputs are DERIVED, never retyped:
   - Revenue (UTARG)          = money in the till = kasa fiskalna + gotówka
-                               niewbita (salon_days), same as the kasa summary.
+                               niewbita (salon_days) + the shop's cash/card sales
+                               (F11), same as the kasa summary.
   - Staff cost (KOSZT PRAC.) = the month's settlement payouts (hours×rate +
                                commission); the fixed UOP/ZUS part sits in the
                                operating 'Koszty stałe' lines, as in the sheet.
@@ -24,6 +25,7 @@ from app.derivation import month_bounds
 from app.models import (
     ExpenseCategory,
     LedgerEntry,
+    ProductSale,
     SalonDay,
     SettlementLine,
     SettlementPeriod,
@@ -70,13 +72,30 @@ def standard_monthly_hours(year_month: str) -> int:
 
 def month_money_total(db: Session, year_month: str) -> Decimal:
     """UTARG = kasa fiskalna + gotówka niewbita for the month (owner ruling:
-    the same 'money in' figure as the daily kasa reconciliation)."""
+    the same 'money in' figure as the daily kasa reconciliation) + the shop.
+
+    salon_days.fiscal_register is BOOKSY's till, and products sold in the app's
+    shop never pass through Booksy — without this term the whole shop turnover
+    would be missing from revenue while its costs (goods for resale, the sales
+    commission) are already counted."""
     start, end = month_bounds(year_month)
     fiscal = _sum(db, SalonDay.fiscal_register, SalonDay.day >= start, SalonDay.day < end)
     unreg = _sum(
         db, LedgerEntry.amount_pln, LedgerEntry.entry_date >= start, LedgerEntry.entry_date < end
     )
-    return fiscal + unreg
+    return fiscal + unreg + month_shop_sales(db, year_month)
+
+
+def month_shop_sales(db: Session, year_month: str) -> Decimal:
+    """Σ cash/card product sales made in the app's shop ('inne' = not money in)."""
+    start, end = month_bounds(year_month)
+    return _sum(
+        db,
+        ProductSale.total,
+        ProductSale.sold_on >= start,
+        ProductSale.sold_on < end,
+        ProductSale.payment_method.in_(("gotowka", "karta")),
+    )
 
 
 def month_staff_cost(db: Session, year_month: str) -> Decimal | None:

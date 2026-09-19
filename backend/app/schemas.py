@@ -192,6 +192,7 @@ class SettlementInputIn(BaseModel):
     cash_services: Decimal = Field(default=Decimal("0"), ge=0, max_digits=10, decimal_places=2)
     notebook_sales: Decimal = Field(default=Decimal("0"), ge=0, max_digits=10, decimal_places=2)
     cash_sales: Decimal = Field(default=Decimal("0"), ge=0, max_digits=10, decimal_places=2)
+    shop_sales: Decimal = Field(default=Decimal("0"), ge=0, max_digits=10, decimal_places=2)
     hours: Decimal = Field(default=Decimal("0"), ge=0, max_digits=7, decimal_places=2)
     override_total: Decimal | None = Field(default=None, ge=0, max_digits=10, decimal_places=2)
     override_reason: str | None = None
@@ -207,6 +208,7 @@ class SettlementLineOut(BaseModel):
     cash_services: Decimal
     notebook_sales: Decimal
     cash_sales: Decimal
+    shop_sales: Decimal = Decimal("0")
     hours: Decimal
     services_base: Decimal
     sales_base: Decimal
@@ -406,6 +408,7 @@ class MeCommissionOut(BaseModel):
     services_rate: Decimal
     services_commission: Decimal
     sales_commission: Decimal
+    sales_base: Decimal = Decimal("0")  # my product sales this month (threshold: 1500)
     hours: Decimal
     hours_pay: Decimal
     total_payout: Decimal
@@ -537,7 +540,6 @@ class SalonDayIn(BaseModel):
     fiscal_printer_total: Decimal | None = Field(
         default=None, ge=0, max_digits=10, decimal_places=2
     )
-    recon_explained: bool | None = None
 
 
 class SalonDayOut(BaseModel):
@@ -545,7 +547,6 @@ class SalonDayOut(BaseModel):
     booksy_cash: Decimal
     fiscal_register: Decimal
     fiscal_printer_total: Decimal | None = None
-    recon_explained: bool = False
     # Derived from the day's ledger entries (all employees), never stored:
     unregistered_cash: Decimal  # "gotówka nie wbita"
     cash_in_register: Decimal  # unregistered + booksy_cash ("suma gotówki w kasie")
@@ -577,7 +578,8 @@ class MonthlyKasaOut(BaseModel):
     card: Decimal  # fiscal_register − booksy_cash (płatności kartą/terminal)
     unregistered_cash: Decimal  # Σ gotówka nie wbita (z ewidencji)
     cash_total: Decimal  # booksy_cash + unregistered ("prawdziwa suma gotówki")
-    money_total: Decimal  # fiscal_register + unregistered ("prawdziwa suma pieniędzy")
+    shop_sales: Decimal = Decimal("0")  # cash/card product sales in the app's shop (not in Booksy)
+    money_total: Decimal  # fiscal_register + unregistered + shop ("prawdziwa suma pieniędzy")
 
 
 # --- Expenses & P&L (F12) ---
@@ -1081,20 +1083,156 @@ class ReconTxnOut(BaseModel):
 
 class DayReconciliationOut(BaseModel):
     day: date
-    # no_report (fiscal report not typed) | ok | gap | explained
+    # no_report (fiscal report not typed) | not_synced (no Booksy till for the day
+    # yet) | ok | gap | explained (only while the gap equals what was explained)
     status: str
     booksy_till: Decimal  # what Booksy says was taken (cash + card)
+    shop_sales: Decimal = Decimal("0")  # cash/card product sales made in the app's shop
     fiscal_printer_total: Decimal | None
-    gap: Decimal | None  # booksy_till − printer; >0 = settled in Booksy, not rung up
-    note: str | None
-    synced: bool  # do we hold that day's Booksy transactions at all?
+    gap: Decimal | None  # (booksy_till + shop_sales) − printer; >0 = not rung up
+    recon_note: str | None = None  # the admin's explanation — never sent to staff
+    synced: bool  # do we hold a till for that day at all?
     candidates: list[list[ReconTxnOut]] = []  # transaction(s) whose amount == gap
     transactions: list[ReconTxnOut] = []
+
+
+class ReconExplainIn(BaseModel):
+    explained: bool
+    note: str | None = Field(default=None, max_length=500)
 
 
 class MonthReconDayOut(BaseModel):
     day: date
     status: str
     booksy_till: Decimal
+    shop_sales: Decimal = Decimal("0")
     fiscal_printer_total: Decimal | None
     gap: Decimal | None
+
+
+# ---------------------------------------------------------------- shop (F11)
+PaymentMethod = Literal["gotowka", "karta", "inne"]
+
+
+class ProductIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    brand: str | None = Field(default=None, max_length=100)
+    description: str | None = None
+    price_pln: Decimal = Field(ge=0, max_digits=8, decimal_places=2)
+    stock_qty: int = Field(default=0, ge=0, le=100000)  # opening stock
+
+
+class ProductUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    brand: str | None = Field(default=None, max_length=100)
+    description: str | None = None
+    price_pln: Decimal | None = Field(default=None, ge=0, max_digits=8, decimal_places=2)
+    active: bool | None = None
+
+
+class ProductOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    brand: str | None
+    description: str | None
+    price_pln: Decimal
+    stock_qty: int
+    active: bool
+
+
+class StockChangeIn(BaseModel):
+    delta: int = Field(ge=-100000, le=100000)
+    reason: Literal["delivery", "correction"]
+    note: str | None = None
+
+
+class StockMovementOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    delta: int
+    reason: str
+    ref: str | None
+    note: str | None
+    created_by_name: str | None
+    created_at: datetime
+
+
+class ProductSaleIn(BaseModel):
+    product_id: int
+    qty: int = Field(default=1, ge=1, le=1000)
+    payment_method: PaymentMethod = "karta"
+    sold_on: date | None = None
+    client_id: int | None = None
+    # Admin only: who gets the commission. Staff always sell as themselves — the
+    # seller is taken from the token, never from the body.
+    employee_id: int | None = None
+
+
+class ProductSaleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    product_id: int | None
+    product_name: str
+    qty: int
+    unit_price: Decimal
+    total: Decimal
+    sold_on: date
+    payment_method: str
+    employee_id: int | None
+    employee_name: str | None = None
+    client_id: int | None
+    order_id: int | None
+    created_by_sub: str | None
+
+
+class ShopOrderItemIn(BaseModel):
+    product_id: int
+    qty: int = Field(default=1, ge=1, le=20)
+
+
+class ShopOrderIn(BaseModel):
+    items: list[ShopOrderItemIn] = Field(min_length=1, max_length=20)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class ShopOrderItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    product_id: int | None
+    product_name: str
+    qty: int
+    price_at_order: Decimal
+
+
+class ShopOrderOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    client_id: int
+    client_name: str | None = None
+    status: str  # placed | ready | picked_up | cancelled
+    note: str | None
+    created_at: datetime
+    items: list[ShopOrderItemOut] = []
+    total: Decimal = Decimal("0")
+
+
+class OrderPickupIn(BaseModel):
+    payment_method: PaymentMethod = "karta"
+    employee_id: int | None = None  # admin only, as in ProductSaleIn
+
+
+class ClientProductOut(BaseModel):
+    """What a client sees: no exact stock figures, just whether she can order."""
+
+    id: int
+    name: str
+    brand: str | None
+    description: str | None
+    price_pln: Decimal
+    available: bool
+    low_stock: bool

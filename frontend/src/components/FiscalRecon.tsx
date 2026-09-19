@@ -13,11 +13,12 @@ interface Txn {
   amount: string;
 }
 interface Recon {
-  status: 'no_report' | 'ok' | 'gap' | 'explained';
+  status: 'no_report' | 'not_synced' | 'ok' | 'gap' | 'explained';
   booksy_till: string;
+  shop_sales: string;
   fiscal_printer_total: string | null;
   gap: string | null;
-  note: string | null;
+  recon_note: string | null;
   synced: boolean;
   candidates: Txn[][];
   transactions: Txn[];
@@ -36,7 +37,7 @@ export default function FiscalRecon(props: { day: string; refresh: number; isAdm
     apiFetch<Recon>(`/salon-days/${day}/reconciliation`)
       .then((r) => {
         setRec(r);
-        setNote(r.note ?? '');
+        setNote(r.recon_note ?? '');
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, [day, refresh]);
@@ -51,11 +52,10 @@ export default function FiscalRecon(props: { day: string; refresh: number; isAdm
       return;
     }
     try {
-      // booksy_cash / fiscal_register come from the Booksy sync — resend them as they are
-      const cur = await apiFetch<{ booksy_cash: string; fiscal_register: string }>(`/salon-days/${day}`);
-      await apiFetch(`/salon-days/${day}`, {
-        method: 'PUT',
-        body: JSON.stringify({ ...cur, note: note.trim() || null, recon_explained: value }),
+      // admin-only endpoint; the explanation is pinned to the CURRENT gap amount
+      await apiFetch(`/salon-days/${day}/reconciliation/explain`, {
+        method: 'POST',
+        body: JSON.stringify({ explained: value, note: note.trim() || null }),
       });
       setError(null);
       onChange();
@@ -70,6 +70,7 @@ export default function FiscalRecon(props: { day: string; refresh: number; isAdm
       <div class="recon-head">
         <b>Kasa fiskalna vs Booksy</b>
         {rec.status === 'no_report' && <span class="rbadge">brak raportu dobowego</span>}
+        {rec.status === 'not_synced' && <span class="rbadge">czeka na synchronizację Booksy</span>}
         {rec.status === 'ok' && <span class="rbadge ok">zgadza się</span>}
         {rec.status === 'explained' && <span class="rbadge ok">różnica wyjaśniona</span>}
         {rec.status === 'gap' && (
@@ -87,13 +88,27 @@ export default function FiscalRecon(props: { day: string; refresh: number; isAdm
         </p>
       )}
 
+      {rec.status === 'not_synced' && (
+        <p class="muted small">
+          Raport dobowy jest wpisany ({pln(rec.fiscal_printer_total ?? 0)} zł), ale nie mamy jeszcze kasy z Booksy dla tego
+          dnia — porównanie pojawi się po synchronizacji kasy (Booksy → „Kasa").
+        </p>
+      )}
+
       {(rec.status === 'gap' || rec.status === 'explained') && (
         <div>
           <p class="small">
-            Booksy: <b>{pln(rec.booksy_till)} zł</b> · drukarka fiskalna: <b>{pln(rec.fiscal_printer_total ?? 0)} zł</b>.{' '}
+            Booksy: <b>{pln(rec.booksy_till)} zł</b>
+            {Number(rec.shop_sales) > 0 && (
+              <span>
+                {' '}
+                + sklep: <b>{pln(rec.shop_sales)} zł</b>
+              </span>
+            )}{' '}
+            · drukarka fiskalna: <b>{pln(rec.fiscal_printer_total ?? 0)} zł</b>.{' '}
             {gap > 0
-              ? 'W Booksy rozliczono więcej, niż nabito na kasę — któraś wizyta nie przeszła przez kasę fiskalną.'
-              : 'Na kasie nabito więcej, niż rozliczono w Booksy — sprzedaż bez rozliczenia wizyty w Booksy?'}
+              ? 'Rozliczono więcej, niż nabito na kasę — któraś wizyta lub sprzedaż nie przeszła przez kasę fiskalną.'
+              : 'Na kasie nabito więcej, niż rozliczono — wizyta nierozliczona w Booksy albo produkt niesprzedany w appce?'}
           </p>
 
           {isAdmin && gap > 0 && rec.candidates.length > 0 && (
@@ -103,8 +118,9 @@ export default function FiscalRecon(props: { day: string; refresh: number; isAdm
                 <ul class="cand" key={i}>
                   {group.map((t, j) => (
                     <li key={j}>
-                      <b>{pln(t.amount)} zł</b> · {t.client || '—'} · wykonała:{' '}
-                      <b>{t.performer ?? 'nieustalone'}</b> · {t.method}
+                      <b>{pln(t.amount)} zł</b> · {t.client || (t.method?.startsWith('sklep') ? 'sprzedaż w sklepie' : '—')} ·{' '}
+                      {t.method?.startsWith('sklep') ? 'sprzedała' : 'wykonała'}: <b>{t.performer ?? 'nieustalone'}</b> ·{' '}
+                      {t.method}
                       {t.doc && <span class="muted small"> · {t.doc}</span>}
                     </li>
                   ))}
@@ -143,7 +159,7 @@ export default function FiscalRecon(props: { day: string; refresh: number; isAdm
 
           {isAdmin && rec.transactions.length > 0 && (
             <details>
-              <summary class="small">Wszystkie transakcje Booksy tego dnia ({rec.transactions.length})</summary>
+              <summary class="small">Wszystkie transakcje tego dnia — Booksy i sklep ({rec.transactions.length})</summary>
               <ul class="cand">
                 {rec.transactions.map((t, j) => (
                   <li key={j}>

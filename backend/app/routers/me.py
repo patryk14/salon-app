@@ -20,6 +20,7 @@ from app.derivation import (
     monthly_cash,
     monthly_hours,
     monthly_notebook_services,
+    monthly_shop_sales,
 )
 from app.identity import DbDep, EmployeeDep, account_for
 from app.models import (
@@ -133,6 +134,7 @@ def my_commission(emp: EmployeeDep, db: DbDep, month: MonthQuery) -> MeCommissio
         booksy_services=monthly_booksy_services(db, emp.id, month),
         cash_services=monthly_cash(db, emp.id, month),
         notebook_services=monthly_notebook_services(db, emp.id, month),
+        shop_sales=monthly_shop_sales(db, emp.id, month),
         hours=monthly_hours(db, emp.id, month),
     )
     result = compute_settlement(inp, _scheme_for(emp))
@@ -142,6 +144,7 @@ def my_commission(emp: EmployeeDep, db: DbDep, month: MonthQuery) -> MeCommissio
         services_rate=result.services_rate,
         services_commission=result.services_commission,
         sales_commission=result.sales_commission,
+        sales_base=result.sales_base,
         hours=inp.hours,
         hours_pay=result.hours_pay,
         total_payout=result.total_payout,

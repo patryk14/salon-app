@@ -6,6 +6,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { getUser, groupsOf, login, logout, signup } from '../lib/auth';
 import { apiFetch } from '../lib/api';
 import AuthImage from './AuthImage';
+import KlientShop from './KlientShop';
 
 interface Me {
   linked: boolean;
@@ -447,6 +448,8 @@ export default function KlientPortal() {
           </div>
         </section>
       )}
+
+      <KlientShop />
 
       <section>
         <div class="shead">

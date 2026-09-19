@@ -5,8 +5,10 @@ panel is ASSEMBLED, never typed. Three sources per employee per month:
   cash_services   ← ledger_entries (F3)   (unregistered cash, 'Gotówka')
   booksy_services ← imported visits (F5)  (completed visits, resolved by alias)
 
-booksy_sales (products) and notebook packages are not derived here yet — product
-imports (F5) and the notebook (F4) come later; until then they stay manual.
+  shop_sales      ← product_sales (F11)   (products sold through the app's shop)
+
+booksy_sales (products rung up in Booksy) is still typed by hand — the app's own
+shop is the record for product sales made through it.
 """
 
 from dataclasses import dataclass
@@ -22,6 +24,7 @@ from app.models import (
     LedgerEntry,
     NotebookEntry,
     PackageRedemption,
+    ProductSale,
     TimesheetEntry,
     Visit,
 )
@@ -54,6 +57,20 @@ def monthly_cash(db: Session, employee_id: int, year_month: str) -> Decimal:
             LedgerEntry.employee_id == employee_id,
             LedgerEntry.entry_date >= start,
             LedgerEntry.entry_date < end,
+        )
+    )
+    return Decimal(str(total))
+
+
+def monthly_shop_sales(db: Session, employee_id: int, year_month: str) -> Decimal:
+    """Σ of the products this employee sold in the app's shop that month — the
+    SALES commission base (10% once it reaches the threshold)."""
+    start, end = month_bounds(year_month)
+    total = db.scalar(
+        select(func.coalesce(func.sum(ProductSale.total), 0)).where(
+            ProductSale.employee_id == employee_id,
+            ProductSale.sold_on >= start,
+            ProductSale.sold_on < end,
         )
     )
     return Decimal(str(total))

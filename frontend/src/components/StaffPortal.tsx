@@ -26,6 +26,7 @@ interface Commission {
   services_rate: string;
   services_commission: string;
   sales_commission: string;
+  sales_base?: string;
   hours: string;
   hours_pay: string;
   total_payout: string;
@@ -355,6 +356,9 @@ export default function StaffPortal() {
         <a class="btn" href="/panel/klientki">
           Klientki i zdjęcia
         </a>
+        <a class="btn" href="/panel/sklep">
+          Sklep
+        </a>
         <span class="spacer" />
         <button class="btn" onClick={() => logout()}>
           Wyloguj
@@ -381,6 +385,14 @@ export default function StaffPortal() {
             <span class="muted small">
               stawka {Math.round(Number(commission.services_rate) * 100)}% · godziny{' '}
               {pln(commission.hours)} ({pln(commission.hours_pay, 2)} zł)
+            </span>
+          )}
+          {commission && Number(commission.sales_base ?? 0) > 0 && (
+            <span class="muted small">
+              sprzedaż produktów {pln(commission.sales_base ?? '0')} / 1500 zł
+              {Number(commission.sales_commission) > 0
+                ? ` → prowizja ${pln(commission.sales_commission, 2)} zł`
+                : ' (prowizja 10% od progu 1500 zł)'}
             </span>
           )}
         </div>

@@ -88,6 +88,20 @@ import KlientPortal from '../components/KlientPortal.tsx';
       details.after summary { cursor: pointer; font-weight: 600; }
       details.after ul { margin: .6rem 0 0; padding-left: 1.2rem; font-size: .9rem; }
       details.after li + li { margin-top: .3rem; }
+      .btn.sm { padding: .3rem .8rem; font-size: .85rem; }
+      .okmsg { background: var(--pay-soft); color: var(--pay); border-radius: 8px; padding: .6rem .8rem; margin-bottom: .8rem; font-size: .88rem; }
+      .shop { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: .6rem; }
+      .sitem { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: .7rem .8rem; display: flex; flex-direction: column; gap: .3rem; }
+      .sitem.out { opacity: .6; }
+      .sname { font-weight: 600; }
+      .srow { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin-top: auto; padding-top: .3rem; }
+      .qty { display: inline-flex; align-items: center; gap: .5rem; }
+      .qbtn { font: inherit; width: 1.9rem; height: 1.9rem; border-radius: 999px; border: 1px solid var(--line2); background: var(--card); color: var(--ink); cursor: pointer; }
+      .cartbox { margin-top: .8rem; background: var(--accent-soft); border-radius: 12px; padding: .8rem 1rem; display: flex; flex-direction: column; gap: .5rem; }
+      .cartbox ul { margin: 0; padding-left: 1.2rem; font-size: .9rem; }
+      .cartbox input { font: inherit; border: 1px solid var(--line2); background: var(--card); color: var(--ink); border-radius: 8px; padding: .45rem .6rem; }
+      .myorders { margin-top: 1rem; }
+      .orow { display: flex; justify-content: space-between; align-items: center; gap: 1rem; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: .55rem .8rem; margin-top: .4rem; }
       .pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .7rem; }
       .pgrid figure { margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
       .pgrid img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: cover; background: var(--field); }

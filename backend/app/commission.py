@@ -76,6 +76,7 @@ class SettlementInput:
     cash_services: Decimal = Decimal("0")  # "Gotówka"
     notebook_sales: Decimal = Decimal("0")
     cash_sales: Decimal = Decimal("0")
+    shop_sales: Decimal = Decimal("0")  # products sold through the app's shop (F11)
     hours: Decimal = Decimal("0")
 
     @property
@@ -84,7 +85,12 @@ class SettlementInput:
 
     @property
     def sales_base(self) -> Decimal:
-        return _d(self.booksy_sales) + _d(self.notebook_sales) + _d(self.cash_sales)
+        return (
+            _d(self.booksy_sales)
+            + _d(self.notebook_sales)
+            + _d(self.cash_sales)
+            + _d(self.shop_sales)
+        )
 
 
 @dataclass(frozen=True)
