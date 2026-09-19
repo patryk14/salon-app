@@ -314,7 +314,7 @@ export default function TreatmentCards(props: {
             <div>
               <h2 class="section">Pomiary ciała (cm / kg)</h2>
               <div class="scroll">
-                <table class="sessions">
+                <table class="sessions measure">
                   <thead>
                     <tr>
                       <th>Data</th>
@@ -375,6 +375,8 @@ export default function TreatmentCards(props: {
                           <input
                             class="num"
                             inputMode="decimal"
+                            placeholder={key === 'weight' ? 'kg' : 'cm'}
+                            title="0–999, najwyżej jedno miejsce po przecinku"
                             value={mDraft[key as string] ?? ''}
                             onInput={(e) =>
                               setMDraft({ ...mDraft, [key as string]: (e.target as HTMLInputElement).value })
