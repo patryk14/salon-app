@@ -109,11 +109,28 @@ def list_unmatched_staff(
     return unmatched_staff_names(db, month)
 
 
+def _assert_name_free(db: Session, name: str, except_id: int | None = None) -> None:
+    """display_name is UNIQUE — answer a duplicate with a readable 409 instead of
+    letting the INSERT/UPDATE die as an IntegrityError (a 500 in the panel)."""
+    q = select(Employee.id).where(Employee.display_name == name)
+    if except_id is not None:
+        q = q.where(Employee.id != except_id)
+    if db.scalar(q) is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=f"pracownica „{name}” już istnieje")
+
+
 @employees.post("", status_code=status.HTTP_201_CREATED)
 def create_employee(payload: EmployeeCreate, db: DbDep) -> EmployeeOut:
+    _assert_name_free(db, payload.display_name)
+    aliases = list(dict.fromkeys(a.strip() for a in payload.aliases if a.strip()))
+    taken = db.scalars(select(EmployeeAlias.alias).where(EmployeeAlias.alias.in_(aliases))).all()
+    if taken:  # aliases are globally unique: one Booksy name → one employee
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail=f"alias już przypisany: {', '.join(taken)}"
+        )
     data = payload.model_dump(exclude={"aliases"})
     emp = Employee(**data)
-    emp.aliases = [EmployeeAlias(alias=a) for a in payload.aliases]
+    emp.aliases = [EmployeeAlias(alias=a) for a in aliases]
     db.add(emp)
     db.flush()
     return EmployeeOut.model_validate(emp)
@@ -124,7 +141,10 @@ def update_employee(employee_id: int, payload: EmployeeUpdate, db: DbDep) -> Emp
     emp = db.get(Employee, employee_id)
     if emp is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="employee not found")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    fields = payload.model_dump(exclude_unset=True)
+    if fields.get("display_name"):
+        _assert_name_free(db, fields["display_name"], except_id=emp.id)
+    for field, value in fields.items():
         setattr(emp, field, value)
     db.flush()
     return EmployeeOut.model_validate(emp)
