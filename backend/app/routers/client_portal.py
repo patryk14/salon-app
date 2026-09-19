@@ -15,15 +15,26 @@ from typing import Annotated
 from fastapi import APIRouter, Query, Request
 from sqlalchemy import func, select
 
+from app import storage
 from app.auth import UserDep, require_role
 from app.config import get_settings
 from app.derivation import month_bounds
 from app.identity import ClientDep, DbDep, account_for
-from app.models import Client, Package, PackageRedemption, Service, UserAccount, Visit, Voucher
+from app.models import (
+    Client,
+    Package,
+    PackageRedemption,
+    Photo,
+    Service,
+    UserAccount,
+    Visit,
+    Voucher,
+)
 from app.schemas import (
     ClientMeOut,
     ClientPackageOut,
     ClientVoucherOut,
+    PhotoOut,
     RebookingSuggestion,
     VisitBrowseOut,
 )
@@ -214,6 +225,24 @@ def my_rebooking(client: ClientDep, db: DbDep) -> list[RebookingSuggestion]:
             )
         )
     out.sort(key=lambda x: x.suggested_next)
+    return out
+
+
+@client_portal.get("/me/photos")
+def my_photos(client: ClientDep, db: DbDep) -> list[PhotoOut]:
+    """My progress photos, newest first, each with a short-lived view URL. The
+    uploader's identity (staff audit) is not exposed to the client."""
+    photos = db.scalars(
+        select(Photo)
+        .where(Photo.client_id == client.id)
+        .order_by(Photo.taken_on.desc(), Photo.created_at.desc())
+    ).all()
+    out: list[PhotoOut] = []
+    for p in photos:
+        item = PhotoOut.model_validate(p)
+        item.uploaded_by = None
+        item.url = storage.presign_get(p.s3_key)
+        out.append(item)
     return out
 
 

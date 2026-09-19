@@ -11,10 +11,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app import storage
 from app.auth import require_role
 from app.deps import get_db
 from app.derivation import month_bounds
-from app.models import Client, Visit
+from app.models import Client, ClientTombstone, Photo, Visit, utcnow
 from app.schemas import (
     ClientCreate,
     ClientOut,
@@ -81,17 +82,46 @@ def get_client(client_id: int, db: DbDep) -> ClientOut:
 @router.patch("/{client_id}")
 def update_client(client_id: int, payload: ClientUpdate, db: DbDep) -> ClientOut:
     client = _get_client_or_404(db, client_id)
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    fields = payload.model_dump(exclude_unset=True)
+    # Photo consent carries an audit timestamp: granting stamps now, revoking
+    # clears it, so `photo_consent_at is not None` always means "consent stands".
+    if "photo_consent" in fields:
+        client.photo_consent_at = utcnow() if fields["photo_consent"] else None
+    for field, value in fields.items():
         setattr(client, field, value)
     db.flush()
     return ClientOut.model_validate(client)
 
 
+def _purge_client_storage(db: Session, client: Client) -> None:
+    """Delete every S3 object behind this client's photos, so no bytes are
+    orphaned in the bucket when her rows go away."""
+    keys = list(db.scalars(select(Photo.s3_key).where(Photo.client_id == client.id)).all())
+    storage.delete_objects(keys)
+
+
 @router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_client(client_id: int, db: DbDep) -> None:
-    """GDPR erasure path: cascades to visits and photo ROWS. S3 objects behind
-    those photos are handled in the photos slice (delete must cover both)."""
-    db.delete(_get_client_or_404(db, client_id))
+    """Ordinary delete (a duplicate/mistaken row): cascades to visits and photo
+    rows and clears the S3 objects too — but leaves NO tombstone, so a Booksy
+    backfill may legitimately recreate the client. RODO erasure is /erase."""
+    client = _get_client_or_404(db, client_id)
+    _purge_client_storage(db, client)
+    db.delete(client)
+
+
+@router.post("/{client_id}/erase", dependencies=[require_role("admin")])
+def erase_client(client_id: int, db: DbDep) -> dict:
+    """RODO right-to-be-forgotten (admin only): delete the client's S3 photos and
+    all her rows, and — if she came from Booksy — leave a tombstone so the next
+    `pull_customers` backfill does not silently recreate her."""
+    client = _get_client_or_404(db, client_id)
+    _purge_client_storage(db, client)
+    tombstoned = client.booksy_customer_id is not None
+    if tombstoned and db.get(ClientTombstone, client.booksy_customer_id) is None:
+        db.add(ClientTombstone(booksy_customer_id=client.booksy_customer_id))
+    db.delete(client)
+    return {"erased": True, "tombstoned": tombstoned}
 
 
 @router.get("/{client_id}/visits")

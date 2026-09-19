@@ -58,6 +58,11 @@ class Client(TimestampMixin, Base):
     booksy_customer_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, index=True)
     marketing_consent: Mapped[bool] = mapped_column(default=False)
     privacy_consent: Mapped[bool] = mapped_column(default=False)
+    # Progress-photo consent (F9, RODO): no consent → no photo may be uploaded.
+    # A separate, explicit permission — marketing/privacy consent is not enough
+    # to store someone's face. photo_consent_at records when it was granted.
+    photo_consent: Mapped[bool] = mapped_column(default=False)
+    photo_consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     visits: Mapped[list["Visit"]] = relationship(
         back_populates="client", cascade="all, delete-orphan", passive_deletes=True
@@ -65,6 +70,19 @@ class Client(TimestampMixin, Base):
     photos: Mapped[list["Photo"]] = relationship(
         back_populates="client", cascade="all, delete-orphan", passive_deletes=True
     )
+
+
+class ClientTombstone(TimestampMixin, Base):
+    """RODO erasure marker (F9). When a client exercises the right to be
+    forgotten we delete her row + S3 objects; this records her Booksy customer id
+    so the next `pull_customers` backfill does NOT silently recreate her from
+    Booksy. Only Booksy-linked clients need a tombstone — a row with no Booksy id
+    has no upstream to be re-imported from."""
+
+    __tablename__ = "client_tombstones"
+
+    booksy_customer_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    reason: Mapped[str] = mapped_column(String(40), default="rodo_erasure")
 
 
 class Visit(TimestampMixin, Base):
@@ -100,12 +118,23 @@ class Photo(TimestampMixin, Base):
     client_id: Mapped[int] = mapped_column(
         ForeignKey("clients.id", ondelete="CASCADE"), nullable=False
     )
+    # Optional visit tag (F9): a progress photo may belong to a specific visit,
+    # or just sit in the client's gallery. SET NULL so deleting a visit keeps the
+    # photo (it stays personal data tied to the client, not the appointment).
     visit_id: Mapped[int | None] = mapped_column(ForeignKey("visits.id", ondelete="SET NULL"))
+    # Before/after tag (F9): 'before' | 'after' | NULL (untagged gallery photo).
+    kind: Mapped[str | None] = mapped_column(String(10))
     # Key in the private bucket (MinIO locally, S3 in AWS). The object itself is
     # served exclusively via presigned URLs — this table never stores public links.
     s3_key: Mapped[str] = mapped_column(String(512), unique=True)
     content_type: Mapped[str] = mapped_column(String(100), default="image/jpeg")
     note: Mapped[str | None] = mapped_column(Text)
+    # When the photo was taken (defaults to upload day) — orders the gallery even
+    # for photos with no visit tag.
+    taken_on: Mapped[date | None] = mapped_column(Date)
+    # Audit "kto" — Cognito sub of the staff/admin who uploaded it; created_at is
+    # the "kiedy". Personal data of clients demands an accountable uploader.
+    uploaded_by: Mapped[str | None] = mapped_column(String(255))
 
     client: Mapped[Client] = relationship(back_populates="photos")
 

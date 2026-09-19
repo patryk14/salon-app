@@ -124,10 +124,12 @@ def pull_customers(db: Session, per_page: int = 100, max_pages: int = 60) -> dic
     email and consents. Match an existing Client by that id, else by name (only a
     row not already linked, so we never steal another person's link), else create
     a new one. Contacts/consents are the base for self-signup and reminders."""
-    from app.models import Client
+    from app.models import Client, ClientTombstone
 
     creds = load_credentials(db)
     existing = db.scalars(select(Client)).all()
+    # RODO tombstones: Booksy ids of clients erased on request — never re-import.
+    tombstoned = set(db.scalars(select(ClientTombstone.booksy_customer_id)).all())
     by_booksy = {c.booksy_customer_id: c for c in existing if c.booksy_customer_id}
     by_name: dict[tuple[str, str], list] = {}
     for c in existing:
@@ -148,6 +150,8 @@ def pull_customers(db: Session, per_page: int = 100, max_pages: int = 60) -> dic
             first = (md.get("first_name") or "").strip()
             last = (md.get("last_name") or "").strip()
             if not (first or last):  # nameless ghost record → skip
+                continue
+            if bid and bid in tombstoned:  # RODO-erased → do not recreate or re-link
                 continue
             total += 1
             phone = (md.get("cell_phone") or "").strip() or None

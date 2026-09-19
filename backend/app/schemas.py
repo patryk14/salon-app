@@ -3,8 +3,11 @@
 from datetime import date, datetime, time
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+
+PhotoKind = Literal["before", "after"]
 
 
 class VisitStatus(StrEnum):
@@ -31,6 +34,9 @@ class ClientUpdate(BaseModel):
     phone: str | None = Field(default=None, max_length=20)
     email: EmailStr | None = None
     notes: str | None = None
+    # Progress-photo consent (F9). Toggling it does not touch existing photos —
+    # revocation blocks new uploads; erasure of stored photos is the RODO path.
+    photo_consent: bool | None = None
 
 
 class ClientOut(BaseModel):
@@ -42,6 +48,8 @@ class ClientOut(BaseModel):
     phone: str | None
     email: str | None
     notes: str | None
+    photo_consent: bool
+    photo_consent_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -77,6 +85,45 @@ class VisitOut(BaseModel):
     notes: str | None
     created_at: datetime
     updated_at: datetime
+
+
+# ------------------------------------------------------- progress photos (F9)
+class PhotoUploadRequest(BaseModel):
+    """Step 1 of an upload: ask the API for a presigned PUT URL for this type."""
+
+    content_type: str = Field(pattern=r"^image/(jpeg|png|webp|heic)$")
+
+
+class PhotoUploadResponse(BaseModel):
+    s3_key: str
+    upload_url: str
+    content_type: str
+
+
+class PhotoCreate(BaseModel):
+    """Step 2: register the object the browser just PUT into the bucket."""
+
+    s3_key: str = Field(min_length=1, max_length=512)
+    content_type: str = Field(pattern=r"^image/(jpeg|png|webp|heic)$")
+    visit_id: int | None = None
+    kind: PhotoKind | None = None
+    note: str | None = None
+    taken_on: date | None = None
+
+
+class PhotoOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    client_id: int
+    visit_id: int | None
+    kind: PhotoKind | None
+    note: str | None
+    taken_on: date | None
+    uploaded_by: str | None
+    created_at: datetime
+    # Short-lived presigned GET URL, filled in by the router (not an ORM column).
+    url: str | None = None
 
 
 # ------------------------------------------------------------------ pagination

@@ -25,6 +25,7 @@ from app.routers import (
     invites,
     me,
     packages,
+    photos,
     settlement,
     statements,
     supplies,
@@ -86,4 +87,5 @@ def create_app() -> FastAPI:
     app.include_router(vouchers.router)
     app.include_router(client_portal.client_portal)
     app.include_router(catalog.catalog)
+    app.include_router(photos.router)
     return app
